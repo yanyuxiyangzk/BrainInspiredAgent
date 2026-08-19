@@ -9,6 +9,7 @@ import pytest
 
 from apps.quant_agent.cli import EXIT_OK, EXIT_UNAVAILABLE, run
 from apps.quant_agent.runtime import DailyReviewSchedule, build_quant_runtime
+from apps.quant_agent.startup import StartupPathError, _prepare_directory, prepare_runtime_paths
 
 
 @pytest.mark.asyncio
@@ -82,3 +83,50 @@ async def test_q05_artifact_collision_fails_before_database_creation(tmp_path: P
     assert code == EXIT_UNAVAILABLE
     assert "artifact path" in stderr.getvalue()
     assert not path.exists()
+
+
+def test_q05_rejects_database_directory_and_readonly_files(tmp_path: Path) -> None:
+    database_directory = tmp_path / "database"
+    database_directory.mkdir()
+    with pytest.raises(StartupPathError, match="regular file"):
+        prepare_runtime_paths(database_directory)
+
+    database = tmp_path / "readonly.db"
+    database.touch(mode=0o444)
+    with pytest.raises(StartupPathError, match="database file"):
+        prepare_runtime_paths(database)
+
+    database.chmod(0o644)
+    artifacts = tmp_path / "readonly-artifacts"
+    artifacts.mkdir(mode=0o555)
+    try:
+        with pytest.raises(StartupPathError, match="artifact directory"):
+            prepare_runtime_paths(database)
+    finally:
+        artifacts.chmod(0o755)
+
+
+def test_q05_wraps_parent_creation_and_access_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent_file = tmp_path / "parent-file"
+    parent_file.write_text("not a directory", encoding="utf-8")
+    with pytest.raises(StartupPathError, match="cannot create"):
+        prepare_runtime_paths(parent_file / "bia.db")
+
+    directory = tmp_path / "inaccessible"
+    directory.mkdir()
+    monkeypatch.setattr("apps.quant_agent.startup.os.access", lambda *_: False)
+    with pytest.raises(StartupPathError, match="not accessible"):
+        _prepare_directory(directory, "test directory")
+
+
+@pytest.mark.asyncio
+async def test_q04_invalid_runtime_schedule_is_structured(tmp_path: Path) -> None:
+    stdout, stderr = StringIO(), StringIO()
+    code = await run(
+        ("--database", str(tmp_path / "bia.db"), "run", "--daily-review-at", "25:00"),
+        stdout, stderr,
+    )
+    assert code == 2
+    assert json.loads(stderr.getvalue())["error"]["code"] == "RUNTIME_CONFIG_INVALID"

@@ -1,0 +1,25 @@
+{
+  "automated_tests": 476,
+  "commit": "ba67b5847ca38eccebf173e0fd282352842103b1",
+  "coverage_percent": 95.04,
+  "counts": {
+    "command_execution": 100,
+    "daily_review_run": 1,
+    "insight_delivery": 100,
+    "local_notification_delivery": 100,
+    "market_episode": 100,
+    "market_task": 100,
+    "market_workflow_run": 100
+  },
+  "duplicate_side_effects": 0,
+  "errors": [],
+  "failed_commands": 0,
+  "finished_at": "2026-08-19T12:57:21.213860Z",
+  "gate": "Q08",
+  "release_decision": "RELEASABLE",
+  "requested_commands": 100,
+  "started_at": "2026-08-19T12:56:43.907446Z",
+  "status": "PASSED",
+  "strong_kill_recovered": true,
+  "successful_commands": 100
+}
