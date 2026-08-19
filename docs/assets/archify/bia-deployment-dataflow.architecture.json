@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {"title": "BIA Deployment and Data Flow", "output": "bia-deployment-dataflow.architecture.html", "quality_profile": "showcase", "viewBox": [2100, 980]},
+  "components": [
+    {"id": "clients", "type": "external", "label": "Clients and Triggers", "sublabel": "CLI · HTTP Client · Scheduler · Market Events", "pos": [70, 150], "size": [280, 90]},
+    {"id": "query", "type": "frontend", "label": "Query and Delivery Service", "sublabel": "MarketInsight · JSON · Markdown · Notification", "pos": [470, 80], "size": [300, 90]},
+    {"id": "runtime", "type": "backend", "label": "Agent Runtime", "sublabel": "LoopEngine · CognitiveCycle · Governance · Workflow", "pos": [470, 260], "size": [300, 90]},
+    {"id": "dna", "type": "backend", "label": "DNA Service", "sublabel": "Registry · Identity · Fitness · Evolution · Promotion", "pos": [470, 440], "size": [300, 90]},
+    {"id": "worker", "type": "messagebus", "label": "Outbox and Notification Worker", "sublabel": "Idempotent delivery · Retry · Restart deduplication", "pos": [470, 620], "size": [300, 90]},
+    {"id": "facts", "type": "database", "label": "Runtime Facts", "sublabel": "Plan · Grant · Task · Run · Episode · Outcome", "pos": [940, 100], "size": [320, 90]},
+    {"id": "registry", "type": "database", "label": "DNA Registry and Audit", "sublabel": "Versions · Digests · Lineage · Transitions", "pos": [940, 280], "size": [320, 90]},
+    {"id": "outbox", "type": "database", "label": "Inbox / Outbox", "sublabel": "Transactional events · Delivery intent · Idempotency key", "pos": [940, 460], "size": [320, 90]},
+    {"id": "readmodel", "type": "database", "label": "Read Models", "sublabel": "MarketInsight · Health · Diagnostics · Rebuildable views", "pos": [940, 640], "size": [320, 90]},
+    {"id": "artifact", "type": "cloud", "label": "Artifact Store", "sublabel": "Reports · Evidence · Replay data · Exported assets", "pos": [1420, 100], "size": [310, 90]},
+    {"id": "skills", "type": "external", "label": "Domain Skills", "sublabel": "Capability implementations and external APIs", "pos": [1420, 320], "size": [310, 90]},
+    {"id": "sources", "type": "external", "label": "External Data Sources", "sublabel": "Market data · Models · Files · Notification channels", "pos": [1420, 540], "size": [310, 90]}
+  ],
+  "boundaries": [
+    {"kind": "region", "label": "BIA Application Process", "wraps": ["query", "runtime", "dna", "worker"], "pad": 38},
+    {"kind": "region", "label": "SQLite Source of Truth", "wraps": ["facts", "registry", "outbox", "readmodel"], "pad": 38},
+    {"kind": "security-group", "label": "Domain and External Boundary", "wraps": ["artifact", "skills", "sources"], "pad": 38}
+  ],
+  "connections": [
+    {"id": "clients-query", "from": "clients", "to": "query", "variant": "emphasis"},
+    {"id": "clients-runtime", "from": "clients", "to": "runtime", "variant": "emphasis"},
+    {"id": "runtime-dna", "from": "runtime", "to": "dna", "variant": "security", "fromSide": "bottom", "toSide": "top"},
+    {"id": "runtime-facts", "from": "runtime", "to": "facts"},
+    {"id": "dna-registry", "from": "dna", "to": "registry", "fromSide": "right", "toSide": "left", "via": [[830, 485], [830, 325]]},
+    {"id": "worker-outbox", "from": "worker", "to": "outbox"},
+    {"id": "skills-sources", "from": "skills", "to": "sources", "variant": "security", "fromSide": "bottom", "toSide": "top"},
+    {"id": "worker-sources", "from": "worker", "to": "sources", "variant": "emphasis"}
+  ],
+  "cards": [
+    {"dot": "violet", "title": "Source of truth", "items": ["Runtime facts and DNA audit are durable", "Read models are disposable and rebuildable"]},
+    {"dot": "rose", "title": "Side-effect boundary", "items": ["Skills require fixed binding and grant", "Notifications leave through transactional Outbox"]},
+    {"dot": "emerald", "title": "Recovery boundary", "items": ["Restart reclaims unfinished work", "Stable idempotency keys prevent duplicate delivery"]}
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bia.local/schemas/error/error-1.0.schema.json",
+  "title": "BIA Error 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "error_id", "code", "category", "message",
+    "retryable", "severity", "occurred_at", "source", "correlation_id"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "error_id": {"type": "string", "format": "uuid"},
+    "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$"},
+    "category": {
+      "enum": ["VALIDATION", "POLICY", "DEPENDENCY", "TIMEOUT", "CONFLICT", "RESOURCE", "INTERNAL"]
+    },
+    "message": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "retryable": {"type": "boolean"},
+    "severity": {"enum": ["INFO", "WARNING", "ERROR", "CRITICAL"]},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "source": {"type": "string", "minLength": 1, "maxLength": 100},
+    "correlation_id": {"type": "string", "format": "uuid"},
+    "causation_id": {"type": ["string", "null"], "format": "uuid"},
+    "plan_id": {"type": ["string", "null"], "format": "uuid"},
+    "task_id": {"type": ["string", "null"], "format": "uuid"},
+    "node_id": {"type": ["string", "null"], "maxLength": 128},
+    "details": {
+      "type": "object",
+      "maxProperties": 32,
+      "description": "Machine-readable, redacted details. Secrets are forbidden."
+    },
+    "cause": {"$ref": "#"}
+  }
+}

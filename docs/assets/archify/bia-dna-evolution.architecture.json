@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {"title": "BIA DNA Execution and Governed Evolution", "output": "bia-dna-evolution.architecture.html", "quality_profile": "showcase", "viewBox": [2250, 1040]},
+  "components": [
+    {"id": "org", "type": "cloud", "label": "Active Organization DNA", "sublabel": "Roles · Delegation · Arbitration · Budget", "pos": [70, 170], "size": [250, 86]},
+    {"id": "agent", "type": "cloud", "label": "Active Agent DNA", "sublabel": "Goal · Attention · Planning · Memory", "pos": [390, 170], "size": [240, 86]},
+    {"id": "workflow", "type": "backend", "label": "Active Workflow DNA", "sublabel": "Versioned DAG · Capability · Policy · Lineage", "pos": [700, 170], "size": [250, 86]},
+    {"id": "identity", "type": "security", "label": "Frozen DNA Identity", "sublabel": "Three versions · Three content digests · Role", "pos": [1020, 170], "size": [250, 86]},
+    {"id": "execute", "type": "backend", "label": "Governed Execution", "sublabel": "Plan · RiskGate · Grant · Runtime · Skill", "pos": [1340, 170], "size": [250, 86]},
+    {"id": "evidence", "type": "database", "label": "Outcome and Evidence", "sublabel": "Episode · Trace · Cost · Latency · Stability · Risk", "pos": [1660, 170], "size": [270, 86]},
+    {"id": "fitness", "type": "backend", "label": "Fitness Projection", "sublabel": "Attributable multi-objective observation", "pos": [1660, 520], "size": [270, 86]},
+    {"id": "dataset", "type": "database", "label": "Experience Dataset", "sublabel": "Versioned · Time split · Replayable · No leakage", "pos": [1340, 520], "size": [250, 86]},
+    {"id": "candidate", "type": "cloud", "label": "Candidate DNA", "sublabel": "Mutation · Crossover · Bounded parameters", "pos": [1020, 520], "size": [250, 86]},
+    {"id": "replay", "type": "backend", "label": "Sandbox Replay", "sublabel": "FakeClock · Parent comparison · Fault injection", "pos": [700, 520], "size": [250, 86]},
+    {"id": "select", "type": "security", "label": "Population Selection", "sublabel": "Hard rejects · Pareto survivors · Diversity", "pos": [390, 520], "size": [240, 86]},
+    {"id": "promote", "type": "security", "label": "Shadow / Canary Gate", "sublabel": "Observation window · Kill switch · Rollback", "pos": [70, 520], "size": [250, 86]},
+    {"id": "registry", "type": "database", "label": "DNA Registries", "sublabel": "CAS · Unique Active · Audit · Lineage · Dual digest", "pos": [70, 790], "size": [250, 86]},
+    {"id": "explain", "type": "messagebus", "label": "Lineage and Explain", "sublabel": "Why generated · Why selected · Why promoted", "pos": [700, 790], "size": [250, 86]}
+  ],
+  "boundaries": [
+    {"kind": "region", "label": "Execution Loop", "wraps": ["org", "agent", "workflow", "identity", "execute", "evidence"], "pad": 32},
+    {"kind": "security-group", "label": "Governed Evolution Loop", "wraps": ["fitness", "dataset", "candidate", "replay", "select", "promote"], "pad": 32},
+    {"kind": "region", "label": "Persistent Control Plane", "wraps": ["registry", "explain"], "pad": 32}
+  ],
+  "connections": [
+    {"id": "org-agent", "from": "org", "to": "agent", "variant": "emphasis"},
+    {"id": "agent-workflow", "from": "agent", "to": "workflow", "variant": "emphasis"},
+    {"id": "workflow-identity", "from": "workflow", "to": "identity", "variant": "security"},
+    {"id": "identity-execute", "from": "identity", "to": "execute", "variant": "security"},
+    {"id": "execute-evidence", "from": "execute", "to": "evidence", "variant": "emphasis"},
+    {"id": "evidence-fitness", "from": "evidence", "to": "fitness", "fromSide": "bottom", "toSide": "top"},
+    {"id": "fitness-dataset", "from": "fitness", "to": "dataset"},
+    {"id": "dataset-candidate", "from": "dataset", "to": "candidate"},
+    {"id": "candidate-replay", "from": "candidate", "to": "replay"},
+    {"id": "replay-select", "from": "replay", "to": "select", "variant": "security"},
+    {"id": "select-promote", "from": "select", "to": "promote", "variant": "security"},
+    {"id": "promote-registry", "from": "promote", "to": "registry", "variant": "security", "fromSide": "bottom", "toSide": "top"},
+    {"id": "registry-org", "from": "registry", "to": "org", "variant": "dashed", "fromSide": "left", "toSide": "left", "via": [[30, 833], [30, 213]]},
+    {"id": "candidate-explain", "from": "candidate", "to": "explain", "label": "generation lineage", "variant": "dashed", "fromSide": "bottom", "toSide": "top"},
+    {"id": "registry-explain", "from": "registry", "to": "explain", "label": "append-only audit", "variant": "dashed"}
+  ],
+  "cards": [
+    {"dot": "rose", "title": "Hard boundary", "items": ["Automation creates Candidate only", "DNA cannot bypass RiskGate or permissions"]},
+    {"dot": "violet", "title": "Identity boundary", "items": ["Running work keeps frozen digests", "Active versions never mutate in place"]},
+    {"dot": "emerald", "title": "Promotion boundary", "items": ["Replay and Pareto precede Shadow/Canary", "Every promotion is explainable and reversible"]}
+  ]
+}

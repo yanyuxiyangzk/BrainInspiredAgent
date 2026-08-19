@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bia.local/schemas/skill/skill-result-1.0.schema.json",
+  "title": "BIA Skill Result 1.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "invocation_id", "status", "started_at", "finished_at", "usage"],
+  "properties": {
+    "schema_version": {"const": "1.0"}, "invocation_id": {"type": "string", "format": "uuid"},
+    "status": {"enum": ["SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELLED", "UNKNOWN"]}, "output": {},
+    "artifact_ref": {"type": "object", "required": ["uri", "digest", "size_bytes"], "properties": {"uri": {"type": "string"}, "digest": {"type": "string"}, "size_bytes": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
+    "output_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "provider_operation_id": {"type": ["string", "null"]},
+    "started_at": {"type": "string", "format": "date-time"}, "finished_at": {"type": "string", "format": "date-time"},
+    "usage": {"type": "object"}, "error": {"$ref": "../error/error-1.0.schema.json"}
+  },
+  "allOf": [
+    {"if": {"properties": {"status": {"const": "SUCCEEDED"}}}, "then": {"oneOf": [{"required": ["output", "output_digest"]}, {"required": ["artifact_ref", "output_digest"]}]}},
+    {"if": {"properties": {"status": {"enum": ["FAILED", "TIMED_OUT"]}}}, "then": {"required": ["error"]}}
+  ]
+}

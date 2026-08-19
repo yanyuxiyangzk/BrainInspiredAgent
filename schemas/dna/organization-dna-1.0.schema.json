@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bia.local/schemas/dna/organization-dna-1.0.schema.json",
+  "title": "BrainAgent Organization DNA 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["dna_spec_version", "dna_id", "version", "kind", "status", "content_digest", "envelope_digest", "profile", "members", "generator"],
+  "properties": {
+    "dna_spec_version": {"const": "1.0"},
+    "dna_id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,127}$"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "kind": {"const": "ORGANIZATION"},
+    "status": {"enum": ["CANDIDATE", "VALIDATED", "ACTIVE", "DEPRECATED", "RETIRED"]},
+    "content_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "envelope_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "profile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["communication", "delegation", "arbitration", "budget", "failure"],
+      "properties": {
+        "communication": {"type": "object", "additionalProperties": false, "required": ["channels", "max_message_bytes", "max_hops"], "properties": {"channels": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}, "max_message_bytes": {"type": "integer", "minimum": 1}, "max_hops": {"type": "integer", "minimum": 1}}},
+        "delegation": {"type": "object", "additionalProperties": false, "required": ["strategy", "max_inflight_per_agent"], "properties": {"strategy": {"enum": ["RESPONSIBILITY", "PRIORITY"]}, "max_inflight_per_agent": {"type": "integer", "minimum": 1}}},
+        "arbitration": {"type": "object", "additionalProperties": false, "required": ["strategy", "quorum_ratio", "tie_break_role"], "properties": {"strategy": {"enum": ["PRIORITY", "QUORUM", "UNANIMOUS"]}, "quorum_ratio": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}, "tie_break_role": {"type": "string"}}},
+        "budget": {"type": "object", "additionalProperties": false, "required": ["max_tokens", "max_cost_minor", "max_duration_seconds", "max_parallel_agents"], "properties": {"max_tokens": {"type": "integer", "minimum": 1}, "max_cost_minor": {"type": "integer", "minimum": 1}, "max_duration_seconds": {"type": "integer", "minimum": 1}, "max_parallel_agents": {"type": "integer", "minimum": 1}}},
+        "failure": {"type": "object", "additionalProperties": false, "required": ["max_member_failures", "isolation_seconds", "fallback_role"], "properties": {"max_member_failures": {"type": "integer", "minimum": 1}, "isolation_seconds": {"type": "integer", "minimum": 1}, "fallback_role": {"type": "string"}}}
+      }
+    },
+    "members": {"type": "array", "minItems": 2, "maxItems": 64, "items": {"type": "object", "additionalProperties": false, "required": ["role", "agent_dna_id", "agent_version", "agent_content_digest", "responsibilities", "priority"], "properties": {"role": {"type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$"}, "agent_dna_id": {"type": "string"}, "agent_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "agent_content_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "responsibilities": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}, "priority": {"type": "integer", "minimum": 0}}}},
+    "generator": {"type": "object", "additionalProperties": {"type": "string"}}
+  }
+}

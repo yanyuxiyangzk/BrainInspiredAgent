@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bia.local/schemas/evolution/workflow-patch-1.0.schema.json",
+  "title": "BIA Workflow Patch 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "proposal_id", "base", "source", "hypothesis", "operations", "required_evidence", "requested_capabilities"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "proposal_id": {"type": "string", "format": "uuid"},
+    "base": {"type": "object", "required": ["workflow_id", "version", "digest"], "properties": {"workflow_id": {"type": "string"}, "version": {"type": "string"}, "digest": {"type": "string"}}, "additionalProperties": false},
+    "source": {"enum": ["GOAL_DESIGN", "OUTCOME_EVALUATION", "FAILURE_ANALYSIS", "HUMAN"]},
+    "hypothesis": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "operations": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["op", "node_id"], "properties": {"op": {"enum": ["add_node", "remove_node", "replace_constraint", "replace_input", "replace_dependency"]}, "node_id": {"type": "string"}, "path": {"type": "string"}, "value": {}}, "additionalProperties": false}},
+    "required_evidence": {"type": "array", "items": {"type": "string"}},
+    "requested_capabilities": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+  }
+}

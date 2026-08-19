@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {"title": "BIA Brain-inspired Agent System Architecture", "output": "bia-system.architecture.html", "quality_profile": "showcase", "viewBox": [1920, 900]},
+  "components": [
+    {"id": "user", "type": "external", "label": "User & External Environment", "sublabel": "Events · Time · CLI · Data Sources", "pos": [40, 320], "size": [180, 76]},
+    {"id": "app", "type": "frontend", "label": "Domain Application", "sublabel": "Quant Agent · Insight · Delivery", "pos": [310, 320], "size": [190, 76]},
+    {"id": "sdk", "type": "cloud", "label": "Domain SDK / Adapter", "sublabel": "Capability · Skill · DNA · Plugin", "pos": [600, 320], "size": [210, 76]},
+    {"id": "govern", "type": "security", "label": "Governed Execution Control Plane", "sublabel": "Plan · RiskGate · Grant · Recovery", "pos": [930, 320], "size": [220, 82]},
+    {"id": "runtime", "type": "backend", "label": "WorkflowRuntime", "sublabel": "MotorExec · DAG · Timeout · Cancel", "pos": [1260, 320], "size": [210, 82]},
+    {"id": "skills", "type": "external", "label": "Skill Plugins", "sublabel": "Capability · Binding · Adapter", "pos": [1580, 320], "size": [180, 76]},
+    {"id": "kernel", "type": "cloud", "label": "BrainAgent Kernel", "sublabel": "Lifecycle · Ports · State · Clock", "pos": [600, 100], "size": [210, 76]},
+    {"id": "loop", "type": "backend", "label": "LoopEngine & Cognitive Regions", "sublabel": "Schedule · Perception · Attention · Planning · Repair", "pos": [930, 100], "size": [220, 82]},
+    {"id": "eventbus", "type": "messagebus", "label": "Reliable Events & Scheduling", "sublabel": "EventBus · Inbox · Outbox · Scheduler", "pos": [930, 560], "size": [220, 82]},
+    {"id": "facts", "type": "database", "label": "SQLite Facts & Artifacts", "sublabel": "Plan · Task · Run · Episode · Artifact", "pos": [1260, 560], "size": [210, 82]},
+    {"id": "outcome", "type": "backend", "label": "Evaluation, Memory & Trace", "sublabel": "Outcome · Evidence · Memory · Explain", "pos": [1260, 730], "size": [210, 82]}
+  ],
+  "boundaries": [
+    {"kind": "region", "label": "Domain & Product Layer", "wraps": ["app", "sdk"], "pad": 30},
+    {"kind": "region", "label": "Active Agent Platform", "wraps": ["loop", "govern", "runtime", "eventbus", "facts", "outcome"], "pad": 34}
+  ],
+  "connections": [
+    {"id": "user-app", "from": "user", "to": "app", "label": "Goals, Events & Queries", "variant": "emphasis", "labelAt": [265, 300]},
+    {"id": "app-sdk", "from": "app", "to": "sdk", "label": "Public Extension Contract", "variant": "emphasis", "labelAt": [550, 300]},
+    {"id": "sdk-govern", "from": "sdk", "to": "govern", "label": "Assemble DNA & Capabilities", "variant": "emphasis", "labelAt": [870, 300]},
+    {"id": "kernel-loop", "from": "kernel", "to": "loop", "label": "Implement Brain Ports", "variant": "dashed", "labelAt": [870, 80]},
+    {"id": "loop-govern", "from": "loop", "to": "govern", "label": "CognitiveCycle", "fromSide": "bottom", "toSide": "top", "labelAt": [1040, 250]},
+    {"id": "govern-runtime", "from": "govern", "to": "runtime", "label": "ExecutionGrant", "variant": "security", "labelAt": [1205, 300]},
+    {"id": "runtime-skills", "from": "runtime", "to": "skills", "label": "Fixed SkillBinding", "variant": "emphasis", "labelAt": [1525, 300]},
+    {"id": "govern-events", "from": "govern", "to": "eventbus", "label": "Transactional Messages & Scheduling", "fromSide": "bottom", "toSide": "top", "labelAt": [1040, 490]},
+    {"id": "runtime-facts", "from": "runtime", "to": "facts", "label": "Task / Run Facts", "fromSide": "bottom", "toSide": "top", "labelAt": [1365, 490]},
+    {"id": "event-facts", "from": "eventbus", "to": "facts", "label": "Transactional Outbox", "labelAt": [1205, 540]},
+    {"id": "facts-outcome", "from": "facts", "to": "outcome", "label": "Episode / Evidence", "fromSide": "bottom", "toSide": "top", "labelAt": [1365, 690]}
+  ],
+  "cards": [
+    {"dot": "emerald", "title": "Stable Foundation", "items": ["Kernel defines domain-neutral ports", "LoopEngine is the top-level scheduler"]},
+    {"dot": "violet", "title": "Deterministic Governance", "items": ["Plan, grant, and execution are separated", "Workflow and Skill are pinned by version and digest"]},
+    {"dot": "cyan", "title": "Outcome Loop", "items": ["Facts persist first; failures recover", "Outcome, Trace and Insight provide value and evidence"]}
+  ]
+}

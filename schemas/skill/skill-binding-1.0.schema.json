@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bia.local/schemas/skill/skill-binding-1.0.schema.json",
+  "title": "BIA Skill Binding 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "node_id", "capability", "capability_version", "skill_id", "skill_version", "skill_digest", "binding_policy_version", "resolved_at"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "node_id": {"type": "string"},
+    "capability": {"type": "string"},
+    "capability_version": {"type": "string"},
+    "skill_id": {"type": "string"},
+    "skill_version": {"type": "string"},
+    "skill_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "binding_policy_version": {"type": "string"},
+    "resolved_at": {"type": "string", "format": "date-time"}
+  }
+}

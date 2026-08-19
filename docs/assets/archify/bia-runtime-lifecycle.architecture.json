@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {"title": "BIA Agent Run Lifecycle and Recovery", "output": "bia-runtime-lifecycle.architecture.html", "quality_profile": "showcase", "viewBox": [2200, 940]},
+  "components": [
+    {"id": "input", "type": "external", "label": "Goal / Event / Schedule", "sublabel": "User · Clock · Market · Internal Feedback", "pos": [40, 320], "size": [210, 82]},
+    {"id": "entry", "type": "frontend", "label": "CLI / API / Adapter", "sublabel": "Normalize request and responsibility", "pos": [320, 320], "size": [210, 82]},
+    {"id": "identity", "type": "database", "label": "Resolve Active DNA", "sublabel": "Freeze DnaExecutionIdentity and digests", "pos": [610, 320], "size": [230, 82]},
+    {"id": "cycle", "type": "backend", "label": "Cognitive Cycle", "sublabel": "World · Goal · Memory snapshots", "pos": [930, 320], "size": [220, 82]},
+    {"id": "gate", "type": "security", "label": "Plan and RiskGate", "sublabel": "Validate · Budget · Policy · ExecutionGrant", "pos": [1240, 320], "size": [230, 82]},
+    {"id": "runtime", "type": "backend", "label": "WorkflowRuntime", "sublabel": "DAG · NodeExecutor · fixed SkillBinding", "pos": [1560, 320], "size": [230, 82]},
+    {"id": "outcome", "type": "messagebus", "label": "Outcome and Evidence", "sublabel": "Artifact · Episode · Trace · Fitness observation", "pos": [1880, 320], "size": [230, 82]},
+    {"id": "delivery", "type": "frontend", "label": "Insight Delivery", "sublabel": "Read model · JSON · Markdown · Notification", "pos": [1880, 110], "size": [230, 82]},
+    {"id": "failure", "type": "security", "label": "Failure Classification", "sublabel": "Timeout · Cancel · Retryable · Non-replayable", "pos": [1560, 600], "size": [230, 82]},
+    {"id": "recovery", "type": "cloud", "label": "Recovery and Repair", "sublabel": "Retry · Resume · Compensate · RestRepair", "pos": [1240, 600], "size": [230, 82]},
+    {"id": "facts", "type": "database", "label": "Durable Facts", "sublabel": "Plan · Grant · Task · Run · Outbox", "pos": [930, 600], "size": [220, 82]}
+  ],
+  "boundaries": [
+    {"kind": "region", "label": "Governed Success Path", "wraps": ["input", "entry", "identity", "cycle", "gate", "runtime", "outcome", "delivery"], "pad": 30},
+    {"kind": "security-group", "label": "Deterministic Failure Path", "wraps": ["failure", "recovery", "facts"], "pad": 30}
+  ],
+  "connections": [
+    {"id": "input-entry", "from": "input", "to": "entry", "label": "stimulus", "variant": "emphasis"},
+    {"id": "entry-identity", "from": "entry", "to": "identity", "label": "responsibility", "variant": "emphasis"},
+    {"id": "identity-cycle", "from": "identity", "to": "cycle", "label": "frozen context", "variant": "security"},
+    {"id": "cycle-gate", "from": "cycle", "to": "gate", "label": "CandidatePlan", "variant": "security"},
+    {"id": "gate-runtime", "from": "gate", "to": "runtime", "label": "grant only", "variant": "security"},
+    {"id": "runtime-outcome", "from": "runtime", "to": "outcome", "variant": "emphasis"},
+    {"id": "outcome-delivery", "from": "outcome", "to": "delivery", "label": "project read model", "fromSide": "top", "toSide": "bottom"},
+    {"id": "runtime-failure", "from": "runtime", "to": "failure", "variant": "security", "fromSide": "bottom", "toSide": "top"},
+    {"id": "failure-recovery", "from": "failure", "to": "recovery", "label": "recovery matrix", "variant": "security"},
+    {"id": "recovery-facts", "from": "recovery", "to": "facts", "label": "append transition"},
+    {"id": "facts-cycle", "from": "facts", "to": "cycle", "variant": "dashed", "fromSide": "top", "toSide": "bottom"},
+    {"id": "outcome-facts", "from": "outcome", "to": "facts", "label": "durable evidence", "variant": "dashed", "fromSide": "bottom", "toSide": "bottom", "via": [[1995, 760], [1040, 760]]}
+  ],
+  "cards": [
+    {"dot": "rose", "title": "Safety invariant", "items": ["No ExecutionGrant, no side effect", "Retries reuse the frozen DNA identity"]},
+    {"dot": "emerald", "title": "Recovery invariant", "items": ["Facts persist before external delivery", "Non-replayable work never retries blindly"]},
+    {"dot": "cyan", "title": "Value invariant", "items": ["Task success is not goal success", "Outcome and evidence feed user delivery"]}
+  ]
+}

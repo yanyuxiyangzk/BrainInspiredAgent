@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bia.local/schemas/event/core-event-payload-1.0.schema.json",
+  "title": "BIA Core Event Payload 1.0",
+  "oneOf": [
+    {"$ref": "#/$defs/referenceEvent"},
+    {"$ref": "#/$defs/stimulusEvent"},
+    {"$ref": "#/$defs/stateEvent"}
+  ],
+  "$defs": {
+    "referenceEvent": {
+      "type": "object", "additionalProperties": false,
+      "required": ["event_type", "entity_id", "entity_schema", "entity_digest"],
+      "properties": {
+        "event_type": {"enum": ["world.snapshot_created", "plan.candidate_created", "plan.decided", "execution.granted", "task.started", "task.finished", "task.failed", "outcome.evaluated", "memory.consolidated", "evolution.proposed"]},
+        "entity_id": {"type": "string", "minLength": 1, "maxLength": 200},
+        "entity_schema": {"type": "string", "minLength": 1},
+        "entity_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "status": {"type": "string", "maxLength": 64}, "summary": {"type": "string", "maxLength": 1000}
+      }
+    },
+    "stimulusEvent": {
+      "type": "object", "additionalProperties": false,
+      "required": ["event_type", "stimulus_id", "data", "data_quality"],
+      "properties": {
+        "event_type": {"enum": ["perception.snapshot", "command.received", "schedule.triggered", "attention.salient_event"]},
+        "stimulus_id": {"type": "string", "minLength": 1, "maxLength": 200}, "data": {"type": "object"},
+        "data_quality": {"enum": ["VALID", "STALE", "PARTIAL", "INVALID"]}, "source_sequence": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "stateEvent": {
+      "type": "object", "additionalProperties": false,
+      "required": ["event_type", "previous", "current", "reason"],
+      "properties": {
+        "event_type": {"enum": ["brain.state_changed", "goal.changed", "system.health_changed"]},
+        "previous": {}, "current": {}, "reason": {"type": "string", "minLength": 1, "maxLength": 1000}
+      }
+    }
+  }
+}

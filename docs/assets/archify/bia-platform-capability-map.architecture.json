@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {"title": "BIA Reusable Platform Capability Map", "output": "bia-platform-capability-map.architecture.html", "quality_profile": "showcase", "viewBox": [2100, 1000]},
+  "components": [
+    {"id": "ports", "type": "external", "label": "Public Ports and Contracts", "sublabel": "Lifecycle · Clock · Message · Memory · Workflow · Skill · DNA · Query", "pos": [720, 70], "size": [660, 92]},
+    {"id": "kernel", "type": "backend", "label": "Kernel", "sublabel": "Lifecycle · Ports · Clock · State Machine", "pos": [140, 260], "size": [310, 90]},
+    {"id": "runtime", "type": "backend", "label": "Runtime", "sublabel": "DAG · Five Node Types · Timeout · Concurrency · Cancel", "pos": [530, 260], "size": [310, 90]},
+    {"id": "reliability", "type": "messagebus", "label": "Reliability", "sublabel": "Transactions · Outbox · Recovery Matrix · Fault Injection", "pos": [920, 260], "size": [310, 90]},
+    {"id": "govern", "type": "security", "label": "Governance", "sublabel": "Plan · RiskGate · Grant · MotorExec", "pos": [1310, 260], "size": [310, 90]},
+    {"id": "intelligence", "type": "cloud", "label": "Intelligence Loop", "sublabel": "Outcome · Memory · RestRepair · Daily Review", "pos": [140, 500], "size": [310, 90]},
+    {"id": "dna", "type": "database", "label": "DNA Control Plane", "sublabel": "Registry · Composer · Fitness · Evolution · Promotion", "pos": [530, 500], "size": [310, 90]},
+    {"id": "observe", "type": "backend", "label": "Observability", "sublabel": "Trace · Metrics · Health · Diagnostics", "pos": [920, 500], "size": [310, 90]},
+    {"id": "integration", "type": "external", "label": "Integration", "sublabel": "Public API · Schema · Migration · Domain SDK · Plugin", "pos": [1310, 500], "size": [310, 90]},
+    {"id": "delivery", "type": "frontend", "label": "Delivery", "sublabel": "CLI · Query API · JSON · Markdown · Notification", "pos": [725, 730], "size": [650, 90]},
+    {"id": "domain", "type": "cloud", "label": "Independent Domain Projects", "sublabel": "Quant is one adapter; future domains reuse the same contracts", "pos": [725, 880], "size": [650, 82]}
+  ],
+  "boundaries": [
+    {"kind": "region", "label": "Reusable BrainAgent Platform", "wraps": ["kernel", "runtime", "reliability", "govern", "intelligence", "dna", "observe", "integration"], "pad": 42}
+  ],
+  "connections": [
+    {"id": "ports-kernel", "from": "ports", "to": "kernel", "fromSide": "bottom", "toSide": "top"},
+    {"id": "ports-runtime", "from": "ports", "to": "runtime", "fromSide": "bottom", "toSide": "top"},
+    {"id": "ports-reliability", "from": "ports", "to": "reliability", "fromSide": "bottom", "toSide": "top"},
+    {"id": "ports-govern", "from": "ports", "to": "govern", "variant": "security", "fromSide": "bottom", "toSide": "top"},
+    {"id": "kernel-intelligence", "from": "kernel", "to": "intelligence", "fromSide": "bottom", "toSide": "top"},
+    {"id": "runtime-dna", "from": "runtime", "to": "dna", "fromSide": "bottom", "toSide": "top"},
+    {"id": "reliability-observe", "from": "reliability", "to": "observe", "fromSide": "bottom", "toSide": "top"},
+    {"id": "govern-integration", "from": "govern", "to": "integration", "variant": "security", "fromSide": "bottom", "toSide": "top"},
+    {"id": "intelligence-delivery", "from": "intelligence", "to": "delivery", "variant": "emphasis", "fromSide": "bottom", "toSide": "top"},
+    {"id": "dna-delivery", "from": "dna", "to": "delivery", "variant": "dashed", "fromSide": "bottom", "toSide": "top"},
+    {"id": "observe-delivery", "from": "observe", "to": "delivery", "fromSide": "bottom", "toSide": "top"},
+    {"id": "integration-delivery", "from": "integration", "to": "delivery", "fromSide": "bottom", "toSide": "top"},
+    {"id": "delivery-domain", "from": "delivery", "to": "domain", "variant": "emphasis", "fromSide": "bottom", "toSide": "top"}
+  ],
+  "cards": [
+    {"dot": "cyan", "title": "Platform proof", "items": ["Capabilities expose domain-neutral contracts", "Domain code stays outside Kernel and Runtime"]},
+    {"dot": "rose", "title": "Safety proof", "items": ["Governance controls every side effect", "Reliability and recovery are built in"]},
+    {"dot": "emerald", "title": "Reuse proof", "items": ["Quant is replaceable through Domain SDK", "Delivery and observability remain reusable"]}
+  ]
+}

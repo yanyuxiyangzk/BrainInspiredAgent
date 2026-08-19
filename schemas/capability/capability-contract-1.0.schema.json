@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bia.local/schemas/capability/capability-contract-1.0.schema.json",
+  "title": "BIA Capability Contract 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "capability", "version", "input_schema", "output_schema", "side_effect"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "capability": {"type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)+$"},
+    "version": {"type": "string", "pattern": "^[1-9][0-9]*\\.[0-9]+$"},
+    "input_schema": {"type": "object"},
+    "output_schema": {"type": "object"},
+    "side_effect": {"enum": ["PURE", "IDEMPOTENT", "QUERYABLE", "NON_REPLAYABLE"]},
+    "error_codes": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {"title": "BIA Three-layer DNA Execution & Evolution", "output": "bia-dna.architecture.html", "quality_profile": "showcase", "viewBox": [2250, 940]},
+  "components": [
+    {"id": "stimulus", "type": "external", "label": "Responsibility Request", "sublabel": "responsibility · budget · unavailable roles", "pos": [30, 320], "size": [200, 80]},
+    {"id": "org", "type": "cloud", "label": "Organization DNA", "sublabel": "Members · Delegation · Arbitration · Org Budget", "pos": [320, 320], "size": [210, 82]},
+    {"id": "agent", "type": "cloud", "label": "Agent DNA", "sublabel": "Goal · Attention · Planning · Memory", "pos": [630, 320], "size": [210, 82]},
+    {"id": "workflow", "type": "backend", "label": "Workflow DNA", "sublabel": "Versioned Workflow JSON · Parent Lineage", "pos": [940, 320], "size": [210, 82]},
+    {"id": "identity", "type": "security", "label": "DnaExecutionIdentity", "sublabel": "organization · role · agent · workflow", "pos": [1250, 320], "size": [220, 82]},
+    {"id": "gate", "type": "security", "label": "Governed Execution Entry", "sublabel": "Plan · RiskGate · Grant · frozen delegation", "pos": [1580, 320], "size": [220, 82]},
+    {"id": "runtime", "type": "backend", "label": "Runtime  &  Skill", "sublabel": "MotorExec · WorkflowRuntime · SkillBinding", "pos": [1910, 320], "size": [220, 82]},
+    {"id": "registry", "type": "database", "label": "DNA Registries", "sublabel": "CAS · Unique  Active · Dual  digest · Audit", "pos": [1255, 80], "size": [210, 82]},
+    {"id": "facts", "type": "database", "label": "DNA Execution Facts", "sublabel": "Plan · Task · Run · Episode · Outcome · Trace", "pos": [1910, 560], "size": [220, 82]},
+    {"id": "fitness", "type": "backend", "label": "Experience & Fitness", "sublabel": "Evidence · Fitness · Experience Dataset", "pos": [1580, 730], "size": [220, 82]},
+    {"id": "evolution", "type": "cloud", "label": "Governed Evolution Pipeline", "sublabel": "Candidate · Replay · Pareto · Shadow/Canary", "pos": [1250, 730], "size": [220, 82]}
+  ],
+  "boundaries": [
+    {"kind": "region", "label": "Three-layer DNA Behavior Encoding", "wraps": ["org", "agent", "workflow"], "pad": 30},
+    {"kind": "security-group", "label": "Identity & Execution Governance", "wraps": ["identity", "gate"], "pad": 30},
+    {"kind": "region", "label": "Execution Facts Loop", "wraps": ["runtime", "facts"], "pad": 28},
+    {"kind": "region", "label": "Candidate Evolution Control Plane", "wraps": ["fitness", "evolution"], "pad": 28}
+  ],
+  "connections": [
+    {"id": "request-org", "from": "stimulus", "to": "org", "label": "Delegate Responsibility Request", "variant": "emphasis", "labelAt": [275, 300]},
+    {"id": "org-agent", "from": "org", "to": "agent", "label": "role → Agent  Strong Reference", "variant": "emphasis", "labelAt": [580, 300]},
+    {"id": "agent-workflow", "from": "agent", "to": "workflow", "label": "workflow role  Strong Reference", "variant": "emphasis", "labelAt": [890, 300]},
+    {"id": "workflow-identity", "from": "workflow", "to": "identity", "label": "Freeze Three-layer Identity", "variant": "security", "labelAt": [1200, 300]},
+    {"id": "registry-identity", "from": "registry", "to": "identity", "label": "Rebuild References & Recompute Digest", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelAt": [1435, 235]},
+    {"id": "identity-gate", "from": "identity", "to": "gate", "label": "dna_context", "variant": "security", "labelAt": [1525, 300]},
+    {"id": "gate-runtime", "from": "gate", "to": "runtime", "label": "ExecutionGrant", "variant": "emphasis", "labelAt": [1855, 300]},
+    {"id": "runtime-facts", "from": "runtime", "to": "facts", "label": "Outcome  &  Trace", "fromSide": "bottom", "toSide": "top", "labelAt": [2020, 500]},
+    {"id": "facts-fitness", "from": "facts", "to": "fitness", "label": "Attributable Experience", "labelAt": [1855, 690]},
+    {"id": "fitness-evolution", "from": "fitness", "to": "evolution", "label": "Dataset  &  Fitness", "labelAt": [1525, 710]},
+    {"id": "evolution-registry", "from": "evolution", "to": "registry", "label": "Promote Active or Roll Back", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "via": [[1360, 870], [2180, 870], [2180, 40], [1360, 40]], "labelAt": [2050, 850]}
+  ],
+  "cards": [
+    {"dot": "violet", "title": "Three-layer Encoding", "items": ["Organization decides responsibility ownership", "Agent decides cognition; Workflow decides execution"]},
+    {"dot": "rose", "title": "Execution Invariants", "items": ["All three references must be Active with matching digest", "Delegation freezes before Plan; RiskGate cannot be bypassed"]},
+    {"dot": "emerald", "title": "Auto-evolution Boundary", "items": ["Automation only creates Candidates", "Promote only after Replay, Pareto, Shadow/Canary"]}
+  ]
+}

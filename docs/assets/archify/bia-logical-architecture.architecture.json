@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {"title": "BIA Logical Architecture - Six Layers and Three Rails", "output": "bia-logical-architecture.architecture.html", "quality_profile": "showcase", "viewBox": [2100, 1060]},
+  "components": [
+    {"id": "delivery", "type": "frontend", "label": "User Value & Delivery", "sublabel": "CLI · Query API · MarketInsight · Notification · Reports", "pos": [260, 80], "size": [1180, 92]},
+    {"id": "domain", "type": "cloud", "label": "Domain Application & Integration", "sublabel": "Quant Agent · Domain SDK · Adapters · Domain Skills", "pos": [260, 220], "size": [1180, 92]},
+    {"id": "dna", "type": "database", "label": "Agent Organization & Behavior Encoding", "sublabel": "Organization DNA · Agent DNA · Workflow DNA · SkillBinding", "pos": [260, 360], "size": [1180, 92]},
+    {"id": "govern", "type": "security", "label": "Governance & Execution Platform", "sublabel": "Planner · RiskGate · ExecutionGrant · MotorExec · WorkflowRuntime · Recovery", "pos": [260, 500], "size": [1180, 92]},
+    {"id": "kernel", "type": "backend", "label": "Brain-inspired Kernel", "sublabel": "Lifecycle · LoopEngine · CognitiveCycle · State Machine · Memory · Clock", "pos": [260, 640], "size": [1180, 92]},
+    {"id": "facts", "type": "messagebus", "label": "Facts, Events & Observability", "sublabel": "SQLite · ArtifactStore · EventBus · Outbox · Episode · Outcome · Trace", "pos": [260, 780], "size": [1180, 92]},
+    {"id": "execution", "type": "security", "label": "Execution Rail", "sublabel": "Goal → Plan → Grant → Workflow → Skill → Outcome", "pos": [1540, 220], "size": [390, 100]},
+    {"id": "dna_rail", "type": "database", "label": "DNA Rail", "sublabel": "Organization → Agent → Workflow → Frozen Identity", "pos": [1540, 430], "size": [390, 100]},
+    {"id": "fact_rail", "type": "messagebus", "label": "Fact Rail", "sublabel": "Plan/Task/Run → Evidence/Trace → Insight/Delivery", "pos": [1540, 640], "size": [390, 100]}
+  ],
+  "boundaries": [
+    {"kind": "region", "label": "BIA Reusable Platform Stack", "wraps": ["delivery", "domain", "dna", "govern", "kernel", "facts"], "pad": 38},
+    {"kind": "security-group", "label": "Cross-cutting Control Rails", "wraps": ["execution", "dna_rail", "fact_rail"], "pad": 38}
+  ],
+  "connections": [
+    {"id": "delivery-domain", "from": "delivery", "to": "domain", "fromSide": "bottom", "toSide": "top"},
+    {"id": "domain-dna", "from": "domain", "to": "dna", "fromSide": "bottom", "toSide": "top"},
+    {"id": "dna-govern", "from": "dna", "to": "govern", "variant": "security", "fromSide": "bottom", "toSide": "top"},
+    {"id": "govern-kernel", "from": "govern", "to": "kernel", "fromSide": "bottom", "toSide": "top"},
+    {"id": "kernel-facts", "from": "kernel", "to": "facts", "fromSide": "bottom", "toSide": "top"},
+    {"id": "facts-delivery", "from": "facts", "to": "delivery", "label": "read model and delivery", "variant": "dashed", "fromSide": "left", "toSide": "left", "via": [[160, 826], [160, 126]]},
+    {"id": "dna-dna-rail", "from": "dna", "to": "dna_rail", "variant": "dashed", "via": [[1510, 406], [1510, 480]]},
+    {"id": "facts-fact-rail", "from": "facts", "to": "fact_rail", "label": "source of truth", "variant": "emphasis"},
+    {"id": "fact-delivery", "from": "fact_rail", "to": "delivery", "label": "user value", "variant": "emphasis", "fromSide": "right", "toSide": "right", "via": [[2010, 690], [2010, 126], [1440, 126]]}
+  ],
+  "cards": [
+    {"dot": "cyan", "title": "Read top to bottom", "items": ["Value enters through product interfaces", "Stable kernel and facts support every domain"]},
+    {"dot": "rose", "title": "Read the rails", "items": ["Execution is grant-only", "DNA is frozen before execution"]},
+    {"dot": "emerald", "title": "Closed outcome loop", "items": ["Facts rebuild read models", "Outcome and evidence return user value"]}
+  ]
+}

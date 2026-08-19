@@ -1,0 +1,15 @@
+{
+  "deterministic_replays": 30,
+  "errors": [],
+  "package_checks": [
+    "brainagent-kernel:BOUNDARY_OK",
+    "brainagent-platform:BOUNDARY_OK",
+    "brainagent-domain-sdk:BOUNDARY_OK"
+  ],
+  "readiness_failures": 0,
+  "real_checkpoints": 10,
+  "release_decision": "BLOCKED",
+  "status": "PASSED",
+  "t06_status": "RUNNING",
+  "virtual_checkpoints": 30
+}

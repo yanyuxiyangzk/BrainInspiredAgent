@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bia.local/schemas/skill/skill-manifest-1.0.schema.json",
+  "title": "BIA Skill Manifest 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "skill_id", "version", "digest", "provides", "side_effect", "required_permissions", "runtime", "entrypoint", "timeout_seconds", "concurrency_limit"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "skill_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "provides": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["capability", "capability_version"], "properties": {"capability": {"type": "string"}, "capability_version": {"type": "string"}}, "additionalProperties": false}},
+    "side_effect": {"enum": ["PURE", "IDEMPOTENT", "QUERYABLE", "NON_REPLAYABLE"]},
+    "required_permissions": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "runtime": {"enum": ["python", "process", "http"]},
+    "entrypoint": {"type": "string", "minLength": 1},
+    "timeout_seconds": {"type": "integer", "minimum": 1},
+    "concurrency_limit": {"type": "integer", "minimum": 1},
+    "supports_cancel": {"type": "boolean"},
+    "supports_query": {"type": "boolean"},
+    "data_regions": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "resources": {"type": "object", "additionalProperties": false, "properties": {"max_cost": {"type": "number", "minimum": 0}, "max_latency_ms": {"type": "integer", "minimum": 1}, "memory_mb": {"type": "integer", "minimum": 1}}},
+    "healthcheck": {"type": "string"}
+  }
+}

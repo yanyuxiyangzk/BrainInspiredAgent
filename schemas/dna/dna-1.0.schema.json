@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bia.local/schemas/dna/dna-1.0.schema.json",
+  "title": "BrainAgent Workflow DNA 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "dna_spec_version", "dna_id", "version", "kind", "status",
+    "content_digest", "envelope_digest", "workflow", "parent_dna", "generator"
+  ],
+  "properties": {
+    "dna_spec_version": {"const": "1.0"},
+    "dna_id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,127}$"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "kind": {"const": "WORKFLOW"},
+    "status": {"enum": ["CANDIDATE", "VALIDATED", "SHADOW", "CANARY", "ACTIVE", "DEPRECATED", "RETIRED"]},
+    "content_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "envelope_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "workflow": {"$ref": "../workflow/workflow-1.0.schema.json"},
+    "parent_dna": {
+      "type": "array",
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["dna_id", "version", "content_digest"],
+        "properties": {
+          "dna_id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,127}$"},
+          "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+          "content_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+        }
+      }
+    },
+    "generator": {
+      "type": "object",
+      "maxProperties": 16,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]{0,63}$"},
+      "additionalProperties": {"type": "string", "maxLength": 512}
+    }
+  }
+}

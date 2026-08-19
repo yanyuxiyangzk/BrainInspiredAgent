@@ -1,0 +1,242 @@
+"""Local JSON/Markdown CLI for platform status and quant insight delivery."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import TextIO
+
+from active_agent_platform.diagnostics import HealthService
+from active_agent_platform.foundation import SystemClock, Uuid7Generator
+from active_agent_platform.metrics import PlatformMetrics, prometheus
+from active_agent_platform.sensory import CommandAdapter, CommandRejected
+from active_agent_platform.storage import SQLiteDatabase
+from active_agent_platform.trace import TraceQuery
+from apps.quant_agent.command_sink import SQLiteEventSink
+from apps.quant_agent.delivery import InsightDeliveryService
+from apps.quant_agent.insights import InsightExplanation, MarketInsightQuery
+
+EXIT_OK = 0
+EXIT_USAGE = 2
+EXIT_NOT_FOUND = 4
+EXIT_UNAVAILABLE = 5
+
+
+def parser() -> argparse.ArgumentParser:
+    root = argparse.ArgumentParser(prog="bia", description="Local brain-agent control and query CLI")
+    root.add_argument("--database", default="bia.db", help="SQLite fact database")
+    root.add_argument("--format", choices=("json", "markdown"), default="json")
+    commands = root.add_subparsers(dest="command", required=True)
+    commands.add_parser("start", help="initialize the local fact store")
+    commands.add_parser("status", help="show durable platform status")
+    commands.add_parser("health", help="check database liveness and readiness")
+    diagnose = commands.add_parser("diagnose", help="show a read-only diagnostic snapshot")
+    diagnose.add_argument("--limit", type=int, default=20)
+    metrics = commands.add_parser("metrics", help="show operational metrics")
+    metrics.add_argument("--prometheus", action="store_true")
+    commands.add_parser("stop", help="request shutdown (foreground runtime only)")
+    inject = commands.add_parser("inject", help="inject an allowlisted command through CommandAdapter")
+    inject.add_argument("injected_command")
+    inject.add_argument("--args", default="{}", help="JSON object of command arguments")
+    inject.add_argument("--idempotency-key")
+    market = commands.add_parser("market", help="market application commands")
+    market_commands = market.add_subparsers(dest="market_command", required=True)
+    summary = market_commands.add_parser("summary")
+    summary.add_argument("--symbols", default="INDEX.TEST")
+    summary.add_argument("--trade-date")
+    summary.add_argument("--title", default="Market summary")
+    subscriptions = commands.add_parser("subscriptions", help="notification preferences")
+    subscription_commands = subscriptions.add_subparsers(dest="subscription_command", required=True)
+    subscribe = subscription_commands.add_parser("add")
+    subscribe.add_argument("subscription_id")
+    subscribe.add_argument("--topic", default="market_summary")
+    subscribe.add_argument("--minimum-level", default="INFO", choices=("INFO", "WARNING", "ERROR"))
+    subscribe.add_argument("--channel", default="local")
+    subscribe.add_argument("--hourly-limit", type=int, default=10)
+    read = subscription_commands.add_parser("read")
+    read.add_argument("delivery_id")
+    delivery = subscription_commands.add_parser("deliver")
+    delivery.add_argument("subscription_id")
+    delivery.add_argument("insight_id")
+    delivery.add_argument("--level", default="INFO", choices=("INFO", "WARNING", "ERROR"))
+    listing = subscription_commands.add_parser("list")
+    listing.add_argument("subscription_id")
+    replay = commands.add_parser("replay", help="show a correlation trace")
+    replay.add_argument("correlation_id")
+    logs = commands.add_parser("log", help="show recent audit records")
+    logs.add_argument("--limit", type=int, default=20)
+    insights = commands.add_parser("insights", help="query MarketInsight projections")
+    insight_commands = insights.add_subparsers(dest="insight_command", required=True)
+    latest = insight_commands.add_parser("latest")
+    latest.add_argument("--limit", type=int, default=10)
+    show = insight_commands.add_parser("show")
+    show.add_argument("insight_id")
+    explain = insight_commands.add_parser("explain")
+    explain.add_argument("insight_id")
+    return root
+
+
+async def run(argv: Sequence[str], stdout: TextIO, stderr: TextIO) -> int:
+    try:
+        args = parser().parse_args(list(argv))
+    except SystemExit as error:
+        return error.code if isinstance(error.code, int) else EXIT_USAGE
+    database = SQLiteDatabase(Path(args.database))
+    try:
+        await database.initialize()
+        value = await _dispatch(database, args)
+        if isinstance(value, _Prometheus):
+            stdout.write(value.value)
+        else:
+            stdout.write(_render(value, args.format) + "\n")
+        return EXIT_OK
+    except LookupError as error:
+        stderr.write(_error("NOT_FOUND", str(error)) + "\n")
+        return EXIT_NOT_FOUND
+    except (OSError, RuntimeError) as error:
+        stderr.write(_error("UNAVAILABLE", str(error)) + "\n")
+        return EXIT_UNAVAILABLE
+    except CommandRejected as error:
+        stderr.write(_error(error.code, str(error)) + "\n")
+        return EXIT_USAGE
+    except ValueError as error:
+        stderr.write(_error("INVALID_ARGUMENT", str(error)) + "\n")
+        return EXIT_USAGE
+    finally:
+        await database.close()
+
+
+async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> object:
+    if args.command == "start":
+        return {"status": "READY", "database": str(Path(args.database).resolve())}
+    if args.command == "stop":
+        return {"status": "STOP_REQUEST_ACCEPTED", "note": "no background daemon is managed"}
+    if args.command == "inject" or args.command == "market":
+        if args.command == "market":
+            command, raw_args = "market.summary", {
+                "symbols": [item for item in args.symbols.split(",") if item],
+                "trade_date": args.trade_date, "title": args.title,
+            }
+            key = f"market.summary:{args.trade_date or 'today'}:{','.join(raw_args['symbols'])}"
+        else:
+            try:
+                raw_args = json.loads(args.args)
+            except json.JSONDecodeError as error:
+                raise ValueError("--args must be a JSON object") from error
+            if not isinstance(raw_args, Mapping):
+                raise ValueError("--args must be a JSON object")
+            command, key = args.injected_command, args.idempotency_key
+        adapter = CommandAdapter(
+            "bia.cli", SystemClock(), Uuid7Generator(SystemClock()), SQLiteEventSink(database, SystemClock()),
+            allowed_commands={"status": False, "market.summary": False},
+        )
+        result = await adapter.inject(command, raw_args, idempotency_key=key)
+        return {"status": result.outcome, "message_id": result.msg_id,
+                "command": command, "governed": True}
+    if args.command == "subscriptions":
+        service = InsightDeliveryService(database, SystemClock())
+        if args.subscription_command == "add":
+            await service.subscribe(args.subscription_id, topic=args.topic,
+                                    minimum_level=args.minimum_level, channel=args.channel,
+                                    hourly_limit=args.hourly_limit)
+            return {"status": "SUBSCRIBED", "subscription_id": args.subscription_id}
+        if args.subscription_command == "deliver":
+            delivered = await service.deliver(
+                args.subscription_id, args.insight_id, level=args.level
+            )
+            return {"status": delivered.status, "delivery_id": delivered.delivery_id}
+        if args.subscription_command == "list":
+            return {"deliveries": list(await service.deliveries(args.subscription_id))}
+        return {"status": "READ" if await service.mark_read(args.delivery_id) else "NOT_FOUND",
+                "delivery_id": args.delivery_id}
+    if args.command == "metrics":
+        snapshot = await PlatformMetrics(database, SystemClock()).snapshot()
+        return _Prometheus(prometheus(snapshot)) if args.prometheus else snapshot.to_dict()
+    if args.command == "health":
+        return (await HealthService(database, SystemClock()).check()).to_dict()
+    if args.command == "diagnose":
+        return (await HealthService(database, SystemClock()).diagnose(
+            recent_limit=args.limit
+        )).to_dict()
+    if args.command == "status":
+        counts = {}
+        for table in ("task", "workflow_run", "episode", "local_notification_delivery"):
+            row = await database.fetch_one(f"SELECT count(*) AS count FROM {table}")
+            counts[table] = 0 if row is None else int(row["count"])
+        return {"status": "HEALTHY", "ready": True, "facts": counts}
+    if args.command == "replay":
+        bundle = await TraceQuery(database).by_correlation(str(args.correlation_id))
+        return {name: _plain(getattr(bundle, name)) for name in (
+            "plans", "decisions", "grants", "tasks", "workflow_runs", "node_runs",
+            "episodes", "audits",
+        )} | {"correlation_id": bundle.correlation_id}
+    if args.command == "log":
+        if not 1 <= args.limit <= 1000:
+            raise ValueError("log limit must be between 1 and 1000")
+        rows = await database.fetch_all(
+            "SELECT * FROM audit_record ORDER BY occurred_at DESC LIMIT ?", (args.limit,)
+        )
+        return {"audits": [dict(row) for row in rows]}
+    query = MarketInsightQuery(database)
+    if args.insight_command == "latest":
+        return {"insights": [item.to_dict() for item in await query.latest(limit=args.limit)]}
+    if args.insight_command == "show":
+        return (await query.show(args.insight_id)).to_dict()
+    explanation = await query.explain(args.insight_id)
+    return _explanation(explanation)
+
+
+def _render(value: object, output_format: str) -> str:
+    if output_format == "json":
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    if isinstance(value, Mapping) and "insight_id" in value:
+        return _insight_markdown(value)
+    if isinstance(value, Mapping) and isinstance(value.get("insights"), list):
+        items = value["insights"]
+        return "\n\n".join(_insight_markdown(item) for item in items if isinstance(item, Mapping)) \
+            or "_No insights._"
+    return "```json\n" + json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n```"
+
+
+def _insight_markdown(value: Mapping[object, object]) -> str:
+    evidence = value.get("evidence", [])
+    lines = [f"# {value.get('title', 'Market insight')}", "", str(value.get("summary", "")), "",
+             f"- Insight: `{value.get('insight_id')}`",
+             f"- Fresh until: `{value.get('fresh_until')}` (stale: `{value.get('stale')}`)",
+             f"- Workflow: `{value.get('workflow_version')}`",
+             f"- Correlation: `{value.get('correlation_id')}`", "", "## Evidence", ""]
+    if isinstance(evidence, list | tuple):
+        lines.extend(
+            f"- `{json.dumps(item, ensure_ascii=False, sort_keys=True)}`" for item in evidence
+        )
+    return "\n".join(lines)
+
+
+def _explanation(value: InsightExplanation) -> dict[str, object]:
+    return value.insight.to_dict() | {"plan_id": value.plan_id, "decision_id": value.decision_id,
+        "grant_id": value.grant_id, "task_id": value.task_id, "run_id": value.run_id}
+
+
+def _plain(value: object) -> object:
+    if isinstance(value, tuple):
+        return [_plain(item) for item in value]
+    if isinstance(value, Mapping):
+        return {str(key): _plain(item) for key, item in value.items()}
+    return value
+
+
+def _error(code: str, message: str) -> str:
+    return json.dumps({"error": {"code": code, "message": message}}, sort_keys=True)
+
+
+class _Prometheus:
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+
+def main() -> int:
+    import sys
+    return asyncio.run(run(sys.argv[1:], sys.stdout, sys.stderr))

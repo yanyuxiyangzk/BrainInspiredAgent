@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bia.local/schemas/event/event-envelope-1.0.schema.json",
+  "title": "BIA Event Envelope 1.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "msg_id", "msg_type", "source", "occurred_at", "published_at", "priority", "correlation_id", "dedup_key", "payload"],
+  "properties": {
+    "schema_version": {"const": "1.0"}, "msg_id": {"type": "string", "format": "uuid"},
+    "msg_type": {"type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"},
+    "source": {"type": "string", "minLength": 1, "maxLength": 100}, "target": {"type": ["string", "null"], "maxLength": 100},
+    "occurred_at": {"type": "string", "format": "date-time"}, "published_at": {"type": "string", "format": "date-time"},
+    "priority": {"type": "integer", "minimum": 0, "maximum": 100}, "correlation_id": {"type": "string", "format": "uuid"},
+    "causation_id": {"type": ["string", "null"], "format": "uuid"}, "dedup_key": {"type": "string", "minLength": 1, "maxLength": 255},
+    "expires_at": {"type": ["string", "null"], "format": "date-time"}, "trace_context": {"type": "object", "maxProperties": 16},
+    "payload_schema": {"type": "string", "minLength": 1}, "payload": {"type": "object"}
+  }
+}

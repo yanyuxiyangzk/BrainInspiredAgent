@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bia.local/schemas/plan/plan-decision-1.0.schema.json",
+  "title": "BIA Plan Decision 1.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "decision_id", "plan_id", "decision", "decided_at", "validator_version", "policy_version", "world_snapshot_id", "reasons", "correlation_id"],
+  "properties": {
+    "schema_version": {"const": "1.0"}, "decision_id": {"type": "string", "format": "uuid"}, "plan_id": {"type": "string", "format": "uuid"},
+    "decision": {"enum": ["APPROVED", "REJECTED", "EXPIRED", "CANCELLED"]}, "decided_at": {"type": "string", "format": "date-time"},
+    "validator_version": {"type": "string"}, "policy_version": {"type": "string"}, "world_snapshot_id": {"type": "string"},
+    "reasons": {"type": "array", "items": {"type": "string", "maxLength": 500}}, "correlation_id": {"type": "string", "format": "uuid"},
+    "error": {"$ref": "../error/error-1.0.schema.json"},
+    "dna_context": {"$ref": "../dna/dna-execution-context-1.0.schema.json"}
+  }
+}

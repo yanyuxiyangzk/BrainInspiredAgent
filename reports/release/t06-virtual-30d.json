@@ -1,0 +1,13 @@
+{
+  "checkpoints": 30,
+  "duplicate_side_effects": 30,
+  "errors": [],
+  "finished_at": "2026-09-17T00:00:00Z",
+  "max_loop_lag_seconds": 0.0,
+  "mode": "virtual-30-days",
+  "process_id": 319851,
+  "readiness_failures": 0,
+  "requested_seconds": 2592000,
+  "started_at": "2026-08-18T00:00:00Z",
+  "status": "PASSED"
+}

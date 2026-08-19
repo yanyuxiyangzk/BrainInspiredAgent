@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bia.local/schemas/skill/skill-invocation-1.0.schema.json",
+  "title": "BIA Skill Invocation 1.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "invocation_id", "task_id", "run_id", "node_id", "binding", "capability", "capability_version", "input", "input_digest", "deadline", "idempotency_key", "attempt", "allowed_permissions", "budget", "correlation_id"],
+  "properties": {
+    "schema_version": {"const": "1.0"}, "invocation_id": {"type": "string", "format": "uuid"}, "task_id": {"type": "string", "format": "uuid"},
+    "run_id": {"type": "string", "format": "uuid"}, "node_id": {"type": "string"}, "binding": {"$ref": "skill-binding-1.0.schema.json"},
+    "capability": {"type": "string"}, "capability_version": {"type": "string"}, "input": {"type": "object"},
+    "input_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "deadline": {"type": "string", "format": "date-time"},
+    "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 255}, "attempt": {"type": "integer", "minimum": 1, "maximum": 3},
+    "allowed_permissions": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}, "data_classification": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "budget": {"type": "object"}, "correlation_id": {"type": "string", "format": "uuid"}, "causation_id": {"type": ["string", "null"], "format": "uuid"}
+  }
+}

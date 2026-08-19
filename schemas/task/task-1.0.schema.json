@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bia.local/schemas/task/task-1.0.schema.json",
+  "title": "BIA Task Record 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "task_id", "plan_id", "grant_id", "correlation_id", "status",
+    "workflow", "priority", "deadline", "idempotency_key", "attempt",
+    "created_at", "updated_at", "input_digest", "node_summary"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "task_id": {"type": "string", "format": "uuid"},
+    "plan_id": {"type": "string", "format": "uuid"},
+    "grant_id": {"type": "string", "format": "uuid"},
+    "correlation_id": {"type": "string", "format": "uuid"},
+    "status": {
+      "enum": [
+        "PENDING", "READY", "DISPATCHED", "RUNNING", "SUCCEEDED", "FAILED",
+        "TIMED_OUT", "CANCELLED", "EXPIRED", "REQUIRES_REVIEW"
+      ]
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workflow_id", "version", "definition_digest"],
+      "properties": {
+        "workflow_id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,127}$"},
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "definition_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+      }
+    },
+    "priority": {"type": "integer", "minimum": 0, "maximum": 100},
+    "deadline": {"type": "string", "format": "date-time"},
+    "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 255},
+    "attempt": {"type": "integer", "minimum": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "started_at": {"type": ["string", "null"], "format": "date-time"},
+    "finished_at": {"type": ["string", "null"], "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "input_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "output": {"$ref": "#/$defs/artifact"},
+    "error": {"$ref": "../error/error-1.0.schema.json"},
+    "node_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "succeeded", "failed", "skipped"],
+      "properties": {
+        "total": {"type": "integer", "minimum": 0},
+        "succeeded": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0},
+        "skipped": {"type": "integer", "minimum": 0}
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tokens", "cost_minor", "currency", "duration_ms"],
+      "properties": {
+        "tokens": {"type": "integer", "minimum": 0},
+        "cost_minor": {"type": "integer", "minimum": 0},
+        "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+        "duration_ms": {"type": "integer", "minimum": 0}
+      }
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["media_type", "digest"],
+      "properties": {
+        "media_type": {"type": "string", "minLength": 1, "maxLength": 100},
+        "inline": {},
+        "uri": {"type": "string", "maxLength": 2048},
+        "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "size_bytes": {"type": "integer", "minimum": 0}
+      },
+      "oneOf": [
+        {"required": ["inline"], "not": {"required": ["uri"]}},
+        {"required": ["uri"], "not": {"required": ["inline"]}}
+      ]
+    }
+  }
+}

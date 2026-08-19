@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="BIA 类脑主动式 AI Agent 技术文档" />
+    <title>BIA 文档</title>
+    <link rel="stylesheet" href="/docs-site/styles.css?v=20260817-4" />
+    <link rel="stylesheet" href="/node_modules/highlight.js/styles/github.css" />
+    <link rel="stylesheet" href="/node_modules/katex/dist/katex.min.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button id="menuButton" class="icon-button menu-button" type="button" aria-label="打开文档树" title="打开文档树">☰</button>
+      <a class="brand" href="/docs-site/">BIA <span>文档</span></a>
+      <div class="search-wrap">
+        <span class="search-icon" aria-hidden="true">⌕</span>
+        <input id="searchInput" type="search" placeholder="筛选文档" aria-label="筛选文档" autocomplete="off" />
+      </div>
+      <span id="statusBadge" class="status-badge">Documentation</span>
+    </header>
+
+    <div class="app-shell">
+      <aside id="sidebar" class="sidebar" aria-label="文档树">
+        <nav id="docTree" class="doc-tree"></nav>
+      </aside>
+      <button id="backdrop" class="backdrop" type="button" aria-label="关闭文档树"></button>
+
+      <main class="content-area">
+        <div class="content-toolbar">
+          <div id="breadcrumbs" class="breadcrumbs"></div>
+          <button id="copyLinkButton" class="icon-button" type="button" aria-label="复制当前文档链接" title="复制当前文档链接">⛓</button>
+        </div>
+        <article id="content" class="markdown-body" aria-live="polite">
+          <p class="loading">正在加载文档…</p>
+        </article>
+      </main>
+
+      <aside class="toc-panel" aria-label="本页目录">
+        <div class="toc-title">本页目录</div>
+        <nav id="pageToc" class="page-toc"></nav>
+      </aside>
+    </div>
+
+    <script type="module" src="/docs-site/app.bundle.js?v=20260819-dna2"></script>
+  </body>
+</html>
