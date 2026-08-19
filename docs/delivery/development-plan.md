@@ -2,7 +2,7 @@
 
 状态：In development（A01～A07、B01～B06、C01～C04、E01～E06 已完成）  
 计划版本：MVP 0.1 / Plan 1.0-rc1  
-最后核验：2026-08-17
+最后核验：2026-08-19
 
 本文是 MVP 唯一派工与进度基线。架构文档描述设计，本文只记录做什么、谁负责、依赖什么、如何验收以及是否真实完成。
 
@@ -170,7 +170,7 @@ M0 契约冻结
 | T03 | `✅ 已开发已测试` | QA | C06,D07,F06 | 2.5 | Workflow/Skill golden tests、非法表达式和资源上限 | 314 项全绿，综合覆盖率 95.02%；market_summary 三 Skill golden、非法引用和资源限制通过 |
 | T04 | `✅ 已开发已测试` | QA/AI | E05,G02 | 3 | `market_summary` E2E、无模型降级和完整审计链 | CognitiveCycle → Rule fallback → RiskGate/Grant → 3 Skills → LocalNotification → Outcome/Episode/Trace E2E 通过 |
 | T05 | `✅ 已开发已测试` | QA/AI | G04,G06 | 3 | `daily_review` E2E、每日幂等、候选经验和持续在线 | RestRepair → Validator/RiskGate/Grant → Workflow → CANDIDATE 经验；重启幂等、NO_ACTIVITY、虚拟 6h 在线通过 |
-| T06 | `🚧 进行中` | QA/OPS | T01～T05,I03,I04,I05 | 4 | 全部 P0 AC 自动化、虚拟 30 天、真实 24h 稳定性报告；CLI 可查询并解释首条市场摘要 | 虚拟 30 天 PASS；真实 24h soak 已启动，报告完成前不发布 |
+| T06 | `✅ 已开发已测试` | QA/OPS | T01～T05,I03,I04,I05 | 4 | 全部 P0 AC 自动化、虚拟 30 天、真实 24h 稳定性报告；CLI 可查询并解释测试装配生成的市场摘要 | 虚拟 30 天和真实 24h PASS；0 readiness failure、0 重复副作用、0 error；发布负责人已签署。外部 CLI 到常驻量化 Runtime 的连接点转由 Q01～Q08 验收 |
 | I06 | `✅ 已开发已测试` | OPS/TL | T02,I03 | 2 | 队列、SQLite、Skill、费用、崩溃、SAFE_MODE Runbook | 可执行检测/止损/恢复/验证/升级步骤；T02、恢复矩阵、诊断与通知幂等自动演练签字；CLI/危险命令文档契约通过 |
 
 ## 技术底座独立交付（MVP 后续）
@@ -186,7 +186,26 @@ M0 契约冻结
 | P07 | `✅ 已开发已测试` | 独立运维、健康诊断、指标、Trace 和 Runbook | Research 跨领域积压诊断；通用 metrics/trace/migrations CLI；Runbook 演练 |
 | P08 | `✅ 已开发已测试` | 不安装的发行边界、独立领域长稳和最终发布验收 | Research 虚拟 30 天/真实 smoke PASS；T06 未通过时发布门保持 BLOCKED |
 
-P01～P08 已证明独立装配、通用闭环、兼容升级、跨领域运维和不安装发布验收；最终 MVP 发布仍受 T06 真实 24 小时门控。
+P01～P08 已证明独立装配、通用闭环、兼容升级、跨领域运维和不安装发布验收；T06 真实 24 小时报告已通过并完成人工签署。
+
+## 可运行产品闭环（MVP 0.1.1）
+
+2026-08-19 的启动检查证明 Kernel、Platform、Domain SDK 和量化 E2E 组件可独立工作，但 `bia market summary` 只将 `command.received` 可靠写入 Outbox；当前常驻 `brainagent` 没有量化命令消费者，因此请求不会自动形成 Task、WorkflowRun、Insight 和通知。这是应用装配与运行链路缺口，不应通过 CLI 同步直调业务服务绕过治理。
+
+关键路径：`Q01 → Q02 → Q03 → Q06 → Q07 → Q08`；Q04、Q05 可在主路径中并行。
+
+| ID | 状态 | 负责人 | 依赖 | 估算 | 交付物/完成标准 | 验收 |
+|---|---|---|---|---:|---|---|
+| Q01 | `⬜ 未开始` | APP/BE | P01,P02,T04,T05 | 2 | `QuantDomainPlugin` 与唯一 Composition Root；注册 Fake Market/Summary/Notification、`market_summary`、`daily_review`、Evaluator 和所需常驻服务；CLI 与 Runtime 使用同一数据库和配置 | `brainagent status` 显示量化能力、Skill、Workflow 和服务；不向 Kernel/Platform 引入量化依赖 |
+| Q02 | `⬜ 未开始` | BE | Q01,B02,B03,E01 | 3 | 持久化 CommandConsumer：Outbox Relay → EventBus → Transactional Inbox；只消费白名单 `command.received`；保留原 msg/dedup/correlation；成功后确认，失败按恢复策略重投/死信 | CLI 先写后启动、确认前崩溃、重复投递和并发同 key 均只产生一次业务受理 |
+| Q03 | `⬜ 未开始` | APP/BE | Q02,E02～E05,F03～F06 | 4 | 将 `market.summary` 转换为固定 CognitiveCycle，解析 Active DNA/Workflow，固定 SkillBinding，经 Planner/Validator/RiskGate/Grant/MotorExec 执行；拒绝路径零 Skill 调用 | 一条 CLI 请求最终产生唯一 Plan/Decision/Grant/Task/Run/Episode，correlation 全链可查；SAFE/过期/预算不足明确拒绝 |
+| Q04 | `⬜ 未开始` | APP/BE | Q01,B06,G04,Q03 | 2.5 | Scheduler 驱动 `daily_review` 常驻服务；交易日/时区/错过窗口策略配置化；重启继续使用稳定 review key | 跨午夜、停机后恢复、重复触发只执行一次；无活动返回 NO_ACTIVITY |
+| Q05 | `⬜ 未开始` | BE/OPS | Q01,A05 | 1 | 启动易用性：数据库/Artifact 父目录安全创建、路径和权限预检、启动失败结构化错误；文档路径不依赖当前工作目录 | 新目录一条命令启动；只读/非法路径退出码稳定且不留下半初始化文件 |
+| Q06 | `⬜ 未开始` | APP/BE | Q03,I04,I05,G06 | 2.5 | Outcome → MarketInsight 投影与订阅交付服务；重建投影、freshness、证据、风险、版本和 read state；只在权威 Outcome 成功后交付 | `bia insights latest/show/explain` 可读首条真实运行结果；重启重放不重复 Insight/通知 |
+| Q07 | `⬜ 未开始` | OPS/BE | Q03,Q04,Q05,Q06,I03 | 2 | 统一 `bia run` 前台入口与 readiness；SIGINT/SIGTERM 排空；CLI 明确 ACCEPTED/RUNNING/SUCCEEDED/FAILED；提供 systemd/Docker 示例但不在进程内自建 daemon/PID 管理 | 冷启动、优雅停止、强杀恢复、第二实例冲突和健康探针黑盒测试通过 |
+| Q08 | `⬜ 未开始` | QA/OPS | Q07 | 3 | 从真实 CLI 子进程到常驻 Runtime 的黑盒 E2E、故障注入和发布验收；Fake 数据闭环与真实 Adapter 契约分开验收 | 100 次命令、重启/崩溃/积压场景无丢失和重复副作用；首条摘要可查询、解释、交付；全量质量门通过 |
+
+阶段出口：用户在新目录执行一条前台启动命令后，另一个终端提交市场摘要请求，可以观察状态从 `ACCEPTED` 进入明确终态，并查询包含 Evidence、版本和 correlation 的 Insight；进程重启不丢请求、不重复执行或交付。此阶段仍使用 Fake Market/Fake Summary/LocalNotification，不宣称提供实时行情或生产外部通知。
 
 ## DNA 演化 MVP（下一阶段）
 

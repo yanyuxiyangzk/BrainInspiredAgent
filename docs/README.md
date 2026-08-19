@@ -43,6 +43,7 @@
 - [开放问题](delivery/open-questions.md)：尚未决定且会影响实现的事项。
 - [阶段 0 冻结就绪报告](delivery/stage-0-freeze-readiness.md)：准入核对、配置基线和冻结动作。
 - [T06 发布验收记录](delivery/t06-release-validation.md)：虚拟 30 天结果与真实 24 小时 soak 状态。
+- [可运行产品闭环缺口评审](reviews/runnable-product-gap-review-2026-08-19.md)：量化常驻装配、命令消费、Insight 交付缺口与 Q01～Q08 发布门。
 - [MVP 需求评审记录（2026-08-16）](reviews/requirements-review-2026-08-16.md)：评审结论、分级问题、追踪矩阵和冻结条件。
 - [技术架构复查（2026-08-16）](reviews/technical-architecture-review-2026-08-16.md)：认知闭环、运行语义与冻结前优化建议。
 - [术语表](glossary.md)：统一概念和命名。
