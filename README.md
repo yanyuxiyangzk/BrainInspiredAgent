@@ -57,15 +57,24 @@ uv run python -m apps.hello_research
 终端一启动常驻 Runtime：
 
 ```bash
-bia --database runtime/bia.db run
+export BIA_DB="$HOME/.local/state/bia/bia.db"
+bia --database "$BIA_DB" run
+```
+
+默认在 `Asia/Shanghai` 的交易日 18:00 执行日复盘。时间、时区、触发窗口和停机错过策略均可配置，例如：
+
+```bash
+bia --database "$BIA_DB" run --daily-review-at 18:30 \
+  --daily-review-timezone Asia/Shanghai \
+  --daily-review-missed-policy FIRE_ONCE
 ```
 
 终端二提交并查询市场摘要：
 
 ```bash
-bia --database runtime/bia.db market summary --symbols INDEX.TEST,INDEX.DEMO
-bia --database runtime/bia.db commands
-bia --database runtime/bia.db insights latest
+bia --database "$BIA_DB" market summary --symbols INDEX.TEST,INDEX.DEMO
+bia --database "$BIA_DB" commands
+bia --database "$BIA_DB" insights latest
 ```
 
 `market summary` 返回 message ID；使用 `bia commands MESSAGE_ID` 查看 `ACCEPTED/RUNNING/SUCCEEDED/FAILED`，成功后可用 `insights show/explain` 查看证据与完整 correlation 链。

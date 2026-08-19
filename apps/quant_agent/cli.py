@@ -8,6 +8,7 @@ import json
 import signal
 import sqlite3
 from collections.abc import Mapping, Sequence
+from datetime import time
 from pathlib import Path
 from typing import TextIO
 
@@ -33,7 +34,14 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--format", choices=("json", "markdown"), default="json")
     commands = root.add_subparsers(dest="command", required=True)
     commands.add_parser("start", help="initialize the local fact store")
-    commands.add_parser("run", help="run the quant command worker until SIGINT/SIGTERM")
+    runtime = commands.add_parser("run", help="run the quant command worker until SIGINT/SIGTERM")
+    runtime.add_argument("--daily-review-at", default="18:00", metavar="HH:MM")
+    runtime.add_argument("--daily-review-timezone", default="Asia/Shanghai")
+    runtime.add_argument("--daily-review-window-seconds", type=float, default=60.0)
+    runtime.add_argument("--daily-review-max-missed-seconds", type=float, default=86400.0)
+    runtime.add_argument("--daily-review-missed-policy", choices=("SKIP", "FIRE_ONCE"),
+                         default="FIRE_ONCE")
+    runtime.add_argument("--daily-review-all-days", action="store_true")
     commands.add_parser("status", help="show durable platform status")
     commands.add_parser("health", help="check database liveness and readiness")
     diagnose = commands.add_parser("diagnose", help="show a read-only diagnostic snapshot")
@@ -91,10 +99,15 @@ async def run(argv: Sequence[str], stdout: TextIO, stderr: TextIO) -> int:
     except SystemExit as error:
         return error.code if isinstance(error.code, int) else EXIT_USAGE
     database_path = Path(args.database)
-    if args.command in {"start", "run"} and database_path.parent != Path("."):
-        database_path.parent.mkdir(parents=True, exist_ok=True)
+    if args.command in {"start", "run"}:
+        from apps.quant_agent.startup import prepare_runtime_paths
+        try:
+            prepare_runtime_paths(database_path)
+        except OSError as error:
+            stderr.write(_error("STARTUP_PATH_INVALID", str(error)) + "\n")
+            return EXIT_UNAVAILABLE
     if args.command == "run":
-        return await _run_runtime(database_path, stdout, stderr)
+        return await _run_runtime(database_path, stdout, stderr, args)
     database = SQLiteDatabase(database_path)
     try:
         await database.initialize()
@@ -270,10 +283,31 @@ def _command_row(row: Mapping[str, object] | sqlite3.Row) -> dict[str, object]:
     return value
 
 
-async def _run_runtime(database_path: Path, stdout: TextIO, stderr: TextIO) -> int:
-    from apps.quant_agent.runtime import build_quant_runtime
+async def _run_runtime(
+    database_path: Path, stdout: TextIO, stderr: TextIO, args: argparse.Namespace
+) -> int:
+    from active_agent_platform.scheduler import MissedTriggerPolicy
+    from apps.quant_agent.runtime import DailyReviewSchedule, build_quant_runtime
 
-    components = build_quant_runtime(database_path)
+    try:
+        hour, minute = (int(value) for value in args.daily_review_at.split(":"))
+        review_at = time(hour, minute)
+        schedule = DailyReviewSchedule(
+            at=review_at, timezone=args.daily_review_timezone,
+            window_seconds=args.daily_review_window_seconds,
+            max_missed_seconds=args.daily_review_max_missed_seconds,
+            missed_policy=MissedTriggerPolicy(args.daily_review_missed_policy),
+            trading_days_only=not args.daily_review_all_days,
+        )
+        default_schedule = DailyReviewSchedule()
+        components = (
+            build_quant_runtime(database_path)
+            if schedule == default_schedule
+            else build_quant_runtime(database_path, schedule=schedule)
+        )
+    except (TypeError, ValueError) as error:
+        stderr.write(_error("RUNTIME_CONFIG_INVALID", str(error)) + "\n")
+        return EXIT_USAGE
     await components.database.initialize()
     service = components.service
     loop = asyncio.get_running_loop()

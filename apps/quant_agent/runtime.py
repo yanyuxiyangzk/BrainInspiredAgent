@@ -6,7 +6,7 @@ import asyncio
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -37,7 +37,9 @@ from active_agent_platform.events.models import DeliveryResult
 from active_agent_platform.foundation import SystemClock, Uuid7Generator
 from active_agent_platform.motor import MotorExec
 from active_agent_platform.plan_validation import PlanValidator
+from active_agent_platform.rest_repair import RestRepair
 from active_agent_platform.risk import RiskBudget, RiskGate, RiskPolicy
+from active_agent_platform.scheduler import MissedTriggerPolicy, Scheduler, ScheduleSpec
 from active_agent_platform.skills import (
     CancellationToken,
     CapabilityRegistry,
@@ -54,6 +56,8 @@ from active_agent_platform.state import BrainMode, BrainState, MarketPhase, Work
 from active_agent_platform.storage import SQLiteDatabase, SQLiteTransaction
 from active_agent_platform.workflow import WorkflowRegistry, WorkflowStatus
 from active_agent_platform.workflow_runtime import WorkflowRuntime
+from apps.quant_agent.daily_review import DAILY_REVIEW_WORKFLOW
+from apps.quant_agent.daily_review_app import DailyReviewApp
 from apps.quant_agent.delivery import InsightDeliveryService
 from apps.quant_agent.fake_skills import install_fake_skills
 from apps.quant_agent.market_summary import MARKET_SUMMARY_WORKFLOW
@@ -69,6 +73,16 @@ def _stamp(value: datetime) -> str:
 class QuantRuntimeComponents:
     database: SQLiteDatabase
     service: QuantRuntimeService
+
+
+@dataclass(frozen=True, slots=True)
+class DailyReviewSchedule:
+    at: time = time(18, 0)
+    timezone: str = "Asia/Shanghai"
+    window_seconds: float = 60.0
+    missed_policy: MissedTriggerPolicy = MissedTriggerPolicy.FIRE_ONCE
+    max_missed_seconds: float = 86_400.0
+    trading_days_only: bool = True
 
 
 class _CommandMessage:
@@ -92,12 +106,18 @@ class _CommandMessage:
 
 
 class _CommandPublisher:
-    def __init__(self, consumer: TransactionalInboxConsumer) -> None:
+    def __init__(self, consumer: TransactionalInboxConsumer, service: QuantRuntimeService | None = None) -> None:
         self._consumer = consumer
+        self._service = service
 
     async def publish(self, message: object) -> PublishReport:
         if not isinstance(message, PersistedBusMessage):
             raise TypeError("quant command publisher requires persisted messages")
+        if message.msg_type == "schedule.triggered" and self._service is not None:
+            await self._service.execute_daily_review(message)
+            return PublishReport(message.msg_id, (
+                DeliveryResult("quant-daily-review", DeliveryOutcome.ENQUEUED),
+            ))
         if message.msg_type != "command.received":
             return PublishReport(message.msg_id, (
                 DeliveryResult("quant-command", DeliveryOutcome.FILTERED),
@@ -135,26 +155,40 @@ class QuantRuntimeService:
         bindings: Mapping[tuple[str, str, str], SkillBinding],
         clock: Clock,
         identifiers: UuidGenerator,
+        daily_review: DailyReviewApp,
+        daily_bindings: Mapping[tuple[str, str, str], SkillBinding],
+        schedule: DailyReviewSchedule,
     ) -> None:
         self._database = database
         self._app = app
         self._bindings = bindings
         self._clock = clock
         self._identifiers = identifiers
+        self._daily_review = daily_review
+        self._daily_bindings = daily_bindings
         consumer = TransactionalInboxConsumer(
             "quant-command", database, clock, identifiers,
             is_retryable=lambda error: isinstance(error, (OSError, RuntimeError)),
         )
+        self._publisher = _CommandPublisher(consumer, self)
         self._relay = OutboxRelay(
-            database, _CommandPublisher(consumer), clock,
+            database, self._publisher, clock,
             poll_interval_seconds=0.1,
         )
+        self._scheduler = Scheduler(database, clock, identifiers, (ScheduleSpec(
+            "quant.daily_review", schedule.at, window_seconds=schedule.window_seconds,
+            missed_policy=schedule.missed_policy,
+            max_missed_seconds=schedule.max_missed_seconds,
+            timezone=schedule.timezone, trading_days_only=schedule.trading_days_only,
+            payload_data={"workflow_id": "daily_review"},
+        ),), poll_interval_seconds=0.1)
         self._stopping = asyncio.Event()
         self._accepting = False
 
     async def start(self) -> None:
         self._stopping = asyncio.Event()
         self._accepting = True
+        await self._scheduler.start()
         await self._relay.start()
         async with self._database.transaction() as transaction:
             await transaction.execute(
@@ -164,6 +198,7 @@ class QuantRuntimeService:
 
     async def serve(self) -> None:
         while not self._stopping.is_set():
+            await self._scheduler.tick()
             await self._relay.publish_due()
             if self._accepting:
                 await self.process_one()
@@ -262,20 +297,37 @@ class QuantRuntimeService:
                  error_code, command_id),
             )
 
+    async def execute_daily_review(self, message: PersistedBusMessage) -> None:
+        payload = message.envelope.get("payload", {})
+        data = payload.get("data", {}) if isinstance(payload, Mapping) else {}
+        occurrence = data.get("occurrence_key") if isinstance(data, Mapping) else None
+        business_date = self._clock.now().date()
+        if isinstance(occurrence, str):
+            business_date = datetime.fromisoformat(occurrence).date()
+        state = BrainState(
+            MarketPhase.CLOSED, Workload.IDLE, BrainMode.REVIEW, self._clock.now()
+        )
+        await self._daily_review.execute(business_date, state, self._daily_bindings)
+
     async def quiesce(self) -> None:
         self._accepting = False
+        await self._scheduler.quiesce()
         await self._relay.quiesce()
 
     async def checkpoint(self) -> None:
+        await self._scheduler.checkpoint()
         await self._relay.checkpoint()
 
     async def stop(self) -> None:
         self._accepting = False
         self._stopping.set()
+        await self._scheduler.stop()
         await self._relay.stop()
 
 
-def build_quant_runtime(database_path: str | Path) -> QuantRuntimeComponents:
+def build_quant_runtime(
+    database_path: str | Path, *, schedule: DailyReviewSchedule | None = None
+) -> QuantRuntimeComponents:
     path = Path(database_path)
     if path.parent != Path("."):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -285,6 +337,8 @@ def build_quant_runtime(database_path: str | Path) -> QuantRuntimeComponents:
     registry = WorkflowRegistry()
     registered = registry.register(MARKET_SUMMARY_WORKFLOW, status=WorkflowStatus.VALIDATED)
     workflow = registry.activate(registered.workflow_id, registered.version)
+    daily_registered = registry.register(DAILY_REVIEW_WORKFLOW, status=WorkflowStatus.VALIDATED)
+    daily_workflow = registry.activate(daily_registered.workflow_id, daily_registered.version)
     capabilities = CapabilityRegistry()
     skills = SkillRegistry(capabilities)
     bundle = install_fake_skills(capabilities, skills, clock=clock, database=database)
@@ -302,6 +356,19 @@ def build_quant_runtime(database_path: str | Path) -> QuantRuntimeComponents:
             SideEffect(str(dict(node["constraints"])["side_effect"])),
         ), policy_version="market-policy/1")
         bindings[(workflow.workflow_id, workflow.version, str(node["node_id"]))] = binding
+    daily_bindings: dict[tuple[str, str, str], SkillBinding] = {}
+    daily_nodes = cast(list[object], daily_workflow.definition["nodes"])
+    for node_value in daily_nodes:
+        if not isinstance(node_value, Mapping):
+            continue
+        node = dict(node_value)
+        binding = resolver.resolve(SkillRequirement(
+            str(node["node_id"]), str(node["capability"]),
+            str(node["capability_version"]), frozenset(),
+            SideEffect(str(dict(node["constraints"])["side_effect"])),
+        ), policy_version="daily-review/1")
+        daily_bindings[(daily_workflow.workflow_id, daily_workflow.version,
+                        str(node["node_id"]))] = binding
     artifacts = LocalArtifactStore(path.parent / f"{path.stem}-artifacts")
     runtime = WorkflowRuntime(
         database=database, registry=registry,
@@ -329,8 +396,20 @@ def build_quant_runtime(database_path: str | Path) -> QuantRuntimeComponents:
         OutcomeEvaluator(database, clock, identifiers, OutcomePolicy("1.0")),
         clock, identifiers,
     )
+    daily_app = DailyReviewApp(
+        database, RestRepair(database, clock, identifiers), PlanValidator(registry),
+        RiskGate(RiskPolicy(
+            "daily-review/1", frozenset({"content.summary.generate"}), frozenset(),
+            RiskBudget(1000, 100, 600), RiskBudget(1000, 100, 600),
+        )),
+        MotorExec(database, runtime, clock=clock, identifiers=identifiers),
+        clock, identifiers,
+    )
     return QuantRuntimeComponents(
-        database, QuantRuntimeService(database, app, bindings, clock, identifiers)
+        database, QuantRuntimeService(
+            database, app, bindings, clock, identifiers, daily_app, daily_bindings,
+            schedule or DailyReviewSchedule(),
+        )
     )
 
 
