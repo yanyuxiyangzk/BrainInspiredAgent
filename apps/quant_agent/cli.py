@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import signal
+import sqlite3
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TextIO
@@ -31,6 +33,7 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--format", choices=("json", "markdown"), default="json")
     commands = root.add_subparsers(dest="command", required=True)
     commands.add_parser("start", help="initialize the local fact store")
+    commands.add_parser("run", help="run the quant command worker until SIGINT/SIGTERM")
     commands.add_parser("status", help="show durable platform status")
     commands.add_parser("health", help="check database liveness and readiness")
     diagnose = commands.add_parser("diagnose", help="show a read-only diagnostic snapshot")
@@ -68,6 +71,9 @@ def parser() -> argparse.ArgumentParser:
     replay.add_argument("correlation_id")
     logs = commands.add_parser("log", help="show recent audit records")
     logs.add_argument("--limit", type=int, default=20)
+    command_status = commands.add_parser("commands", help="query durable command status")
+    command_status.add_argument("command_id", nargs="?")
+    command_status.add_argument("--limit", type=int, default=20)
     insights = commands.add_parser("insights", help="query MarketInsight projections")
     insight_commands = insights.add_subparsers(dest="insight_command", required=True)
     latest = insight_commands.add_parser("latest")
@@ -84,7 +90,12 @@ async def run(argv: Sequence[str], stdout: TextIO, stderr: TextIO) -> int:
         args = parser().parse_args(list(argv))
     except SystemExit as error:
         return error.code if isinstance(error.code, int) else EXIT_USAGE
-    database = SQLiteDatabase(Path(args.database))
+    database_path = Path(args.database)
+    if args.command in {"start", "run"} and database_path.parent != Path("."):
+        database_path.parent.mkdir(parents=True, exist_ok=True)
+    if args.command == "run":
+        return await _run_runtime(database_path, stdout, stderr)
+    database = SQLiteDatabase(database_path)
     try:
         await database.initialize()
         value = await _dispatch(database, args)
@@ -180,6 +191,20 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
             "SELECT * FROM audit_record ORDER BY occurred_at DESC LIMIT ?", (args.limit,)
         )
         return {"audits": [dict(row) for row in rows]}
+    if args.command == "commands":
+        if not 1 <= args.limit <= 1000:
+            raise ValueError("command limit must be between 1 and 1000")
+        if args.command_id:
+            row = await database.fetch_one(
+                "SELECT * FROM command_execution WHERE command_id=?", (args.command_id,)
+            )
+            if row is None:
+                raise LookupError(f"command not found: {args.command_id}")
+            return _command_row(row)
+        rows = await database.fetch_all(
+            "SELECT * FROM command_execution ORDER BY accepted_at DESC LIMIT ?", (args.limit,)
+        )
+        return {"commands": [_command_row(row) for row in rows]}
     query = MarketInsightQuery(database)
     if args.insight_command == "latest":
         return {"insights": [item.to_dict() for item in await query.latest(limit=args.limit)]}
@@ -235,6 +260,60 @@ def _error(code: str, message: str) -> str:
 class _Prometheus:
     def __init__(self, value: str) -> None:
         self.value = value
+
+
+def _command_row(row: Mapping[str, object] | sqlite3.Row) -> dict[str, object]:
+    value = dict(row)
+    for name in ("args_json", "result_json"):
+        raw = value.pop(name, None)
+        value[name.removesuffix("_json")] = None if raw is None else json.loads(str(raw))
+    return value
+
+
+async def _run_runtime(database_path: Path, stdout: TextIO, stderr: TextIO) -> int:
+    from apps.quant_agent.runtime import build_quant_runtime
+
+    components = build_quant_runtime(database_path)
+    await components.database.initialize()
+    service = components.service
+    loop = asyncio.get_running_loop()
+    stopped = asyncio.Event()
+
+    def request_stop() -> None:
+        stopped.set()
+
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(signum, request_stop)
+        except NotImplementedError:
+            pass
+    try:
+        await service.start()
+        stdout.write(json.dumps({
+            "status": "READY", "database": str(database_path.resolve()),
+            "service": service.name,
+        }, sort_keys=True) + "\n")
+        stdout.flush()
+        serving = asyncio.create_task(service.serve(), name="quant-runtime")
+        stop_waiter = asyncio.create_task(stopped.wait(), name="quant-stop-waiter")
+        done, _ = await asyncio.wait(
+            (serving, stop_waiter), return_when=asyncio.FIRST_COMPLETED
+        )
+        if serving in done:
+            await serving
+        await service.quiesce()
+        await service.checkpoint()
+        await service.stop()
+        if not serving.done():
+            await serving
+        if not stop_waiter.done():
+            stop_waiter.cancel()
+        return EXIT_OK
+    except (OSError, RuntimeError, ValueError) as error:
+        stderr.write(_error("RUNTIME_FAILED", str(error)) + "\n")
+        return EXIT_UNAVAILABLE
+    finally:
+        await components.database.close()
 
 
 def main() -> int:

@@ -57,9 +57,11 @@ class MarketSummaryApp:
         cycle: CognitiveCycle,
         state: BrainState,
         bindings: Mapping[tuple[str, str, str], SkillBinding],
+        *,
+        planner: RulePlanner | None = None,
     ) -> MarketSummaryResult:
         now = self._clock.now().astimezone(UTC)
-        planned = await self._planner.plan(
+        planned = await (planner or self._planner).plan(
             cycle, brain_mode=state.brain_mode.value, phase=state.phase.value
         )
         validated = self._validator.validate(planned.plan.document, now=now)

@@ -30,7 +30,7 @@ BIA（Brain-inspired Initiative Agent）是一个持续运行、事件驱动、�
 brain_kernel → active_agent_platform → domain_sdk → apps/quant_agent
 ```
 
-当前已完成 A01～A07 工程基线、B01～B06 可靠事件/契约/状态/时间链路、C01～C04 Workflow 静态定义内核及 E01～E06 主动认知输入链路：基础设施、LoopEngine/Supervisor、Error、SQLite、确定性皮层调度、Domain SDK、Composition Root、EventBus、事务型 Inbox、可确认恢复重投的 Outbox、Event Envelope/Payload 1.0 契约、三维 StateController、持久化 Scheduler、JSONL Sensory、白名单 CommandAdapter、WorldModel、确定性 Attention、固定 GoalPolicy、CognitiveCoordinator、有界 WorkingMemory、Workflow Registry、DAG 校验和受限表达式。WorkflowRuntime 与完整 Skill Runtime 按 [MVP 开发计划](docs/delivery/development-plan.md)继续开发。
+当前已完成 Kernel、Platform、Domain SDK、量化 Fake Skills、DNA 演化链和可运行量化闭环。外部 CLI 命令经 Outbox/Inbox、Planner、RiskGate、Grant、Workflow Runtime、Outcome 和 Insight 投影处理；重启保持幂等和完整 Trace。当前不接真实交易，行情、摘要和通知默认使用本地 Fake Adapter。
 
 ## 本地开发
 
@@ -51,3 +51,21 @@ uv run python -m apps.hello_research
 ```
 
 该入口会通过 Domain SDK 装配 Capability、两个可替换 Skill、Workflow、LoopProfile 和 OutcomeEvaluator，初始化 SQLite 与 LoopEngine 后干净退出并输出注册摘要。
+
+## 启动量化闭环
+
+终端一启动常驻 Runtime：
+
+```bash
+bia --database runtime/bia.db run
+```
+
+终端二提交并查询市场摘要：
+
+```bash
+bia --database runtime/bia.db market summary --symbols INDEX.TEST,INDEX.DEMO
+bia --database runtime/bia.db commands
+bia --database runtime/bia.db insights latest
+```
+
+`market summary` 返回 message ID；使用 `bia commands MESSAGE_ID` 查看 `ACCEPTED/RUNNING/SUCCEEDED/FAILED`，成功后可用 `insights show/explain` 查看证据与完整 correlation 链。

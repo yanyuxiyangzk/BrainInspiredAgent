@@ -8,7 +8,7 @@ version = "0.1.0.dev0"
 description = "Domain-neutral brain agent kernel and active-agent platform"
 requires-python = ">=3.11"
 readme = "README.md"
-dependencies = []
+dependencies = ["jsonschema>=4.26.0"]
 
 [project.scripts]
 bia = "apps.quant_agent.cli:main"
@@ -17,7 +17,6 @@ brainagent = "apps.brainagent_cli:main"
 [dependency-groups]
 dev = [
     "build>=1.5.0",
-    "jsonschema>=4.26.0",
     "mypy>=1.10",
     "pytest>=8",
     "pytest-asyncio>=0.23",
@@ -28,6 +27,18 @@ dev = [
 
 [tool.setuptools.packages.find]
 include = ["brain_kernel*", "active_agent_platform*", "domain_sdk*", "apps*"]
+
+[tool.setuptools.data-files]
+"schemas/capability" = ["schemas/capability/*.json"]
+"schemas/dna" = ["schemas/dna/*.json"]
+"schemas/error" = ["schemas/error/*.json"]
+"schemas/event" = ["schemas/event/*.json"]
+"schemas/evolution" = ["schemas/evolution/*.json"]
+"schemas/execution" = ["schemas/execution/*.json"]
+"schemas/plan" = ["schemas/plan/*.json"]
+"schemas/skill" = ["schemas/skill/*.json"]
+"schemas/task" = ["schemas/task/*.json"]
+"schemas/workflow" = ["schemas/workflow/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

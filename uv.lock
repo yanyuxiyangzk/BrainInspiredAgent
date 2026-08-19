@@ -83,11 +83,13 @@ wheels = [
 name = "bia-agent"
 version = "0.1.0.dev0"
 source = { editable = "." }
+dependencies = [
+    { name = "jsonschema" },
+]
 
 [package.dev-dependencies]
 dev = [
     { name = "build" },
-    { name = "jsonschema" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -97,11 +99,11 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [{ name = "jsonschema", specifier = ">=4.26.0" }]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "build", specifier = ">=1.5.0" },
-    { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "mypy", specifier = ">=1.10" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-asyncio", specifier = ">=0.23" },

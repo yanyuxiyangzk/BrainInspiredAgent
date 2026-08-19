@@ -6,6 +6,22 @@
 
 ## 1. 值守入口和安全原则
 
+量化 Runtime 使用前台常驻模式启动，进程管理交给终端或 systemd/Docker：
+
+```bash
+bia --database "$BIA_DB" run
+```
+
+看到 `status=READY` 后，从另一个终端提交命令并查询终态：
+
+```bash
+bia --database "$BIA_DB" market summary --symbols INDEX.TEST
+bia --database "$BIA_DB" commands MESSAGE_ID
+bia --database "$BIA_DB" insights latest
+```
+
+SIGINT/SIGTERM 会停止接收新工作、执行 checkpoint 并关闭数据库。进程在 RUNNING 命令期间退出时，重启会把该命令恢复为 ACCEPTED 并沿原 command ID、dedup key 和 correlation 继续处理。
+
 设定数据库路径后，所有只读检查使用同一参数：
 
 ```bash

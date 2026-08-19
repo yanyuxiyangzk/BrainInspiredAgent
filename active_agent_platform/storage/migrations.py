@@ -1243,6 +1243,32 @@ _DNA_EXECUTION_IDENTITY = Migration(
 )
 
 
+_COMMAND_EXECUTION_RUNTIME = Migration(
+    "023_command_execution_runtime",
+    (
+        """
+        CREATE TABLE command_execution (
+            command_id TEXT PRIMARY KEY,
+            dedup_key TEXT NOT NULL UNIQUE,
+            command TEXT NOT NULL,
+            args_json TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN (
+                'ACCEPTED','RUNNING','SUCCEEDED','FAILED','REJECTED'
+            )),
+            accepted_at TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT,
+            result_json TEXT,
+            error_code TEXT,
+            correlation_id TEXT NOT NULL UNIQUE,
+            attempt INTEGER NOT NULL DEFAULT 0 CHECK (attempt >= 0)
+        )
+        """,
+        "CREATE INDEX idx_command_execution_status ON command_execution(status, accepted_at)",
+    ),
+)
+
+
 DEFAULT_MIGRATIONS = (
     _INITIAL_SCHEMA,
     _INBOX_BUSINESS_DEDUP,
@@ -1266,4 +1292,5 @@ DEFAULT_MIGRATIONS = (
     _AGENT_DNA,
     _ORGANIZATION_DNA,
     _DNA_EXECUTION_IDENTITY,
+    _COMMAND_EXECUTION_RUNTIME,
 )

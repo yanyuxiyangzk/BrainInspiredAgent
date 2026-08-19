@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -37,10 +38,19 @@ class ValidatedPlan:
     tasks: tuple[ValidatedTask, ...]
 
 
+def _default_schema_path() -> Path:
+    relative = Path("schemas/plan/plan-1.0.schema.json")
+    candidates = (Path(__file__).parents[1] / relative, Path(sys.prefix) / relative)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(f"packaged plan schema is missing: {relative}")
+
+
 class PlanValidator:
     def __init__(self, registry: WorkflowRegistry, *, schema_path: Path | None = None) -> None:
         self._registry = registry
-        path = schema_path or Path(__file__).parents[1] / "schemas/plan/plan-1.0.schema.json"
+        path = schema_path or _default_schema_path()
         schema = json.loads(path.read_text(encoding="utf-8"))
         self._validator = Draft202012Validator(schema)
 
