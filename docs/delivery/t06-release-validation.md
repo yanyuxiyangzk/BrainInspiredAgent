@@ -28,4 +28,6 @@ cat reports/release/t06-real-24h.json
 
 报告路径：`reports/release/t06-real-24h.json`。进程每 60 秒写入原子 checkpoint，完成后必须看到 `status=PASSED`、`finished_at` 非空、`readiness_failures=0`，并由发布负责人签署。
 
+真实 24 小时运行已于 2026-08-19 完成：1440 个 checkpoint、0 次 readiness failure、0 次重复副作用、0 个错误。发布负责人 `yanyuxiyangzk` 已于 `2026-08-19T09:38:32Z` 人工签署，确认无未关闭 Critical/High、备份恢复演练通过，并已复核 SAFE_MODE 解除路径。
+
 真实报告结束前，T06 不得标记为完成，也不得发布 MVP 0.1。若进程退出或报告进入 `FAILED`，保留数据库和报告，按 Runbook 的 SQLite/崩溃循环章节处理并重新开始完整 24 小时窗口。

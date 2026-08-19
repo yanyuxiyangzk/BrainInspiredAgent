@@ -4,6 +4,17 @@
   "errors": [],
   "finished_at": "2026-08-19T07:55:22.414735Z",
   "max_loop_lag_seconds": 3.495406,
+  "manual_approval": {
+    "approved": true,
+    "approved_at": "2026-08-19T09:38:32Z",
+    "approved_by": "yanyuxiyangzk",
+    "attestations": {
+      "backup_restore_drill_passed": true,
+      "no_open_critical_or_high_issues": true,
+      "no_duplicate_side_effects": true,
+      "safe_mode_exit_path_reviewed": true
+    }
+  },
   "mode": "real-24h",
   "process_id": 319950,
   "readiness_failures": 0,

@@ -7,9 +7,9 @@
     "brainagent-domain-sdk:BOUNDARY_OK"
   ],
   "readiness_failures": 0,
-  "real_checkpoints": 10,
-  "release_decision": "BLOCKED",
+  "real_checkpoints": 47,
+  "release_decision": "RELEASABLE",
   "status": "PASSED",
-  "t06_status": "RUNNING",
+  "t06_status": "PASSED",
   "virtual_checkpoints": 30
 }
