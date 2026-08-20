@@ -54,6 +54,8 @@ class DailyReviewApp:
         business_date: date,
         state: BrainState,
         bindings: Mapping[tuple[str, str, str], SkillBinding],
+        *,
+        dna_context: Mapping[str, object] | None = None,
     ) -> DailyReviewResult:
         decision = await self._repair.prepare(
             business_date, mode=state.brain_mode.value, phase=state.phase.value
@@ -63,7 +65,7 @@ class DailyReviewApp:
         request = decision.request
         now = self._clock.now().astimezone(UTC)
         plan_id, task_id = str(self._identifiers.new()), str(self._identifiers.new())
-        plan = CandidatePlan.create({
+        plan_document = {
             "schema_version": "1.0", "plan_id": plan_id, "status": "CANDIDATE",
             "created_at": _time(now), "expires_at": _time(request.deadline),
             "correlation_id": request.correlation_id,
@@ -81,7 +83,10 @@ class DailyReviewApp:
             "policy_context": {"brain_mode": state.brain_mode.value,
                                "market_phase": state.phase.value,
                                "data_fresh_until": _time(request.deadline)},
-        })
+        }
+        if dna_context is not None:
+            plan_document["dna_context"] = dict(dna_context)
+        plan = CandidatePlan.create(plan_document)
         validated = self._validator.validate(plan.document, now=now)
         approval = self._risk_gate.evaluate(validated, state=state, now=now)
         task = validated.tasks[0]

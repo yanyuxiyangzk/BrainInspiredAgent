@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
 from active_agent_platform.coordinator import CognitiveCycle
 from active_agent_platform.motor import MotorExec, MotorExecutionRequest, TaskStatus
 from active_agent_platform.outcomes import OutcomeEvaluation, OutcomeEvaluator, OutcomeRequest
 from active_agent_platform.plan_validation import PlanValidator
-from active_agent_platform.planning import GrantIssuer, PlanDecision, PlanningRepository
+from active_agent_platform.planning import (
+    CandidatePlan,
+    GrantIssuer,
+    PlanDecision,
+    PlanningRepository,
+)
 from active_agent_platform.prefrontal import PlannerResult, RulePlanner
 from active_agent_platform.risk import RiskGate
 from active_agent_platform.skills import SkillBinding
@@ -59,11 +64,15 @@ class MarketSummaryApp:
         bindings: Mapping[tuple[str, str, str], SkillBinding],
         *,
         planner: RulePlanner | None = None,
+        dna_context: Mapping[str, object] | None = None,
     ) -> MarketSummaryResult:
         now = self._clock.now().astimezone(UTC)
         planned = await (planner or self._planner).plan(
             cycle, brain_mode=state.brain_mode.value, phase=state.phase.value
         )
+        if dna_context is not None:
+            planned = replace(planned, plan=CandidatePlan.create(
+                dict(planned.plan.document) | {"dna_context": dict(dna_context)}))
         validated = self._validator.validate(planned.plan.document, now=now)
         approval = self._risk_gate.evaluate(validated, state=state, now=now)
         task = validated.tasks[0]
