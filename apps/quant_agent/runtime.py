@@ -75,8 +75,20 @@ from apps.quant_agent.fake_skills import (
 from apps.quant_agent.market_summary import MARKET_SUMMARY_WORKFLOW
 from apps.quant_agent.market_summary_app import MarketSummaryApp
 from brain_kernel.ports import Clock, UuidGenerator
+from domain_sdk.agent_dna import (
+    AgentDnaDefinition,
+    AgentPolicyProfile,
+    PersistentAgentDnaRegistry,
+    WorkflowDnaReference,
+)
 from domain_sdk.dna import DnaDefinition, DnaStatus
 from domain_sdk.dna_repository import PersistentDnaRegistry
+from domain_sdk.organization_dna import (
+    OrganizationDnaDefinition,
+    OrganizationMember,
+    OrganizationPolicyProfile,
+    PersistentOrganizationDnaRegistry,
+)
 
 
 def _stamp(value: datetime) -> str:
@@ -542,6 +554,56 @@ async def _ensure_workflow_dna(database: SQLiteDatabase, clock: Clock,
                 expected_revision=record.revision, reason="runtime bootstrap validation",
                 correlation_id="runtime.dna.bootstrap")
         if record.dna.status is DnaStatus.VALIDATED:
-            await registry.transition(dna_id, version, DnaStatus.SHADOW,
+            record = await registry.transition(dna_id, version, DnaStatus.SHADOW,
                 expected_revision=record.revision, reason="runtime bootstrap shadow",
                 correlation_id="runtime.dna.bootstrap")
+        if record.dna.status is DnaStatus.SHADOW:
+            record = await registry.transition(dna_id, version, DnaStatus.CANARY,
+                expected_revision=record.revision, reason="runtime bootstrap canary",
+                correlation_id="runtime.dna.bootstrap")
+        if record.dna.status is DnaStatus.CANARY:
+            await registry.activate(dna_id, version, expected_revision=record.revision,
+                reason="runtime bootstrap active", correlation_id="runtime.dna.bootstrap")
+    market = await registry.get("workflow.market_summary", "1.0.0")
+    daily = await registry.get("workflow.daily_review", "1.0.0")
+    agents = PersistentAgentDnaRegistry(database, clock, identifiers)
+    agent_profile = AgentPolicyProfile(
+        goal={"allowed_goal_types": ["market.summary", "daily.review"], "max_active_goals": 3, "default_priority": 0.7},
+        attention={"salience_weights": {"market_event": 1.0, "timer": 0.4}, "max_focus_items": 5, "switch_threshold": 0.6},
+        planning={"strategy": "HYBRID", "horizon_seconds": 3600, "max_tasks": 8},
+        memory={"working_items": 20, "episodic_retention_days": 30, "semantic_candidates": 100},
+        evaluation={"minimum_evidence_score": 0.8, "minimum_value_score": 0.7, "review_interval_seconds": 86400},
+    )
+    agent = AgentDnaDefinition.create("agent.quant.default", "1.0.0", agent_profile, (
+        WorkflowDnaReference("market_summary", market.dna.dna_id, market.dna.version, market.dna.content_digest),
+        WorkflowDnaReference("daily_review", daily.dna.dna_id, daily.dna.version, daily.dna.content_digest),
+    ))
+    try:
+        agent_record = await agents.get(agent.dna_id, agent.version)
+    except ValueError:
+        agent_record = await agents.register(agent, correlation_id="runtime.dna.bootstrap")
+    if agent_record.dna.status is DnaStatus.CANDIDATE:
+        agent_record = await agents.transition(agent.dna_id, agent.version, DnaStatus.VALIDATED, expected_revision=agent_record.revision, reason="runtime bootstrap validation", correlation_id="runtime.dna.bootstrap")
+    if agent_record.dna.status is DnaStatus.VALIDATED:
+        agent_record = await agents.transition(agent.dna_id, agent.version, DnaStatus.ACTIVE, expected_revision=agent_record.revision, reason="runtime bootstrap active", correlation_id="runtime.dna.bootstrap")
+    organizations = PersistentOrganizationDnaRegistry(database, clock, identifiers)
+    org_profile = OrganizationPolicyProfile(
+        communication={"channels": ["task", "evidence"], "max_message_bytes": 65536, "max_hops": 4},
+        delegation={"strategy": "RESPONSIBILITY", "max_inflight_per_agent": 2},
+        arbitration={"strategy": "QUORUM", "quorum_ratio": 0.5, "tie_break_role": "lead"},
+        budget={"max_tokens": 10000, "max_cost_minor": 1000, "max_duration_seconds": 3600, "max_parallel_agents": 2},
+        failure={"max_member_failures": 2, "isolation_seconds": 300, "fallback_role": "lead"},
+    )
+    organization = OrganizationDnaDefinition.create(
+        "org.quant.default", "1.0.0", org_profile,
+        (OrganizationMember("lead", agent.dna_id, agent.version, agent.content_digest, ("research", "review"), 100),
+         OrganizationMember("researcher", agent.dna_id, agent.version, agent.content_digest, ("research",), 80)),
+    )
+    try:
+        org_record = await organizations.get(organization.dna_id, organization.version)
+    except ValueError:
+        org_record = await organizations.register(organization, correlation_id="runtime.dna.bootstrap")
+    if org_record.dna.status is DnaStatus.CANDIDATE:
+        org_record = await organizations.transition(organization.dna_id, organization.version, DnaStatus.VALIDATED, expected_revision=org_record.revision, reason="runtime bootstrap validation", correlation_id="runtime.dna.bootstrap")
+    if org_record.dna.status is DnaStatus.VALIDATED:
+        await organizations.transition(organization.dna_id, organization.version, DnaStatus.ACTIVE, expected_revision=org_record.revision, reason="runtime bootstrap active", correlation_id="runtime.dna.bootstrap")
