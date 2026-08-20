@@ -318,6 +318,7 @@ class QuantRuntimeService:
             BrainState(MarketPhase.AUCTION, Workload.IDLE, BrainMode.NORMAL, now),
             self._bindings,
             planner=planner,
+            dna_context=await self._dna_context("market_summary"),
         )
         if executed.execution.status.value != "SUCCEEDED":
             raise RuntimeError(f"workflow terminal status: {executed.execution.status.value}")
@@ -379,7 +380,19 @@ class QuantRuntimeService:
         state = BrainState(
             MarketPhase.CLOSED, Workload.IDLE, BrainMode.REVIEW, self._clock.now()
         )
-        await self._daily_review.execute(business_date, state, self._daily_bindings)
+        await self._daily_review.execute(business_date, state, self._daily_bindings,
+                                         dna_context=await self._dna_context("daily_review"))
+
+    async def _dna_context(self, workflow_role: str) -> dict[str, object]:
+        rows = await self._database.fetch_all(
+            "SELECT organization_dna_id,organization_version,organization_content_digest,"
+            "agent_dna_id,agent_version,agent_content_digest,workflow_dna_id,workflow_version,"
+            "workflow_content_digest FROM dna_execution_context "
+            "ORDER BY rowid DESC LIMIT 1")
+        if rows:
+            return {"workflow_role": workflow_role, "source": "runtime.dna.bootstrap",
+                    "execution_identity": dict(rows[0])}
+        return {"workflow_role": workflow_role, "source": "runtime.dna.bootstrap"}
 
     async def quiesce(self) -> None:
         self._accepting = False
