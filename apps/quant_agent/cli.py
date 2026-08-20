@@ -85,12 +85,19 @@ def parser() -> argparse.ArgumentParser:
         "catalog": ("capabilities", "skills", "workflows"),
         "skills": ("list", "show", "health", "bindings"),
         "workflows": ("list", "active", "show", "runs"),
-        "dna": ("list", "active", "show", "lineage", "explain", "executions"),
+        "dna": ("list", "active", "show", "lineage", "explain", "executions", "transition"),
+        "evolution": ("candidates", "fitness", "datasets", "replay", "compare", "campaigns"),
     }.items():
         query = commands.add_parser(name, help=f"query {name}")
         query.add_argument("view", choices=choices, nargs="?", default=choices[0])
         query.add_argument("identifier", nargs="?")
         query.add_argument("--limit", type=int, default=20)
+        if name == "dna":
+            query.add_argument("--version")
+            query.add_argument("--to", choices=("VALIDATED", "SHADOW", "CANARY", "ACTIVE", "DEPRECATED", "RETIRED"))
+            query.add_argument("--revision", type=int)
+            query.add_argument("--reason")
+            query.add_argument("--yes", action="store_true")
     subscriptions_query = commands.add_parser("subscriptions", help="notification preferences")
     subscription_commands = subscriptions_query.add_subparsers(dest="subscription_command", required=True)
     subscribe = subscription_commands.add_parser("add")
@@ -200,7 +207,7 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
     if args.command == "start":
         return {"status": "READY", "database": str(Path(args.database).resolve())}
     if args.command in {"system", "brain", "events", "plans", "tasks", "catalog",
-                        "skills", "workflows", "dna"}:
+                        "skills", "workflows", "dna", "evolution"}:
         if args.command == "tasks" and args.view in {"cancel", "retry"}:
             if not args.identifier:
                 raise ValueError("task identifier is required")
@@ -256,7 +263,25 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
         if args.command == "workflows":
             return await surface_query.catalog("workflows", args.limit, args.identifier)
         if args.command == "dna":
+            if args.view == "transition":
+                if not args.identifier or not args.version or not args.to or args.revision is None or not args.reason:
+                    raise ValueError("DNA transition requires ID, --version, --to, --revision and --reason")
+                if not args.yes:
+                    raise ValueError("DNA transition requires --yes confirmation")
+                from domain_sdk.dna import DnaStatus
+                from domain_sdk.dna_repository import PersistentDnaRegistry
+                registry = PersistentDnaRegistry(database, SystemClock(), Uuid7Generator(SystemClock()))
+                record = await registry.transition(
+                    args.identifier, args.version, DnaStatus(args.to),
+                    expected_revision=args.revision, reason=args.reason,
+                    correlation_id=f"cli:dna:{args.identifier}:{args.version}",
+                )
+                return {"status": record.dna.status.value, "dna_id": record.dna.dna_id,
+                        "version": record.dna.version, "revision": record.revision,
+                        "governed": True}
             return await surface_query.dna(args.view, args.limit, args.identifier)
+        if args.command == "evolution":
+            return await surface_query.evolution(args.view, args.limit, args.identifier)
         return await surface_query.catalog(args.view, args.limit, args.identifier)
     if args.command == "stop":
         return {"status": "STOP_REQUEST_ACCEPTED", "note": "no background daemon is managed"}

@@ -165,6 +165,18 @@ class CommandSurfaceQuery:
             return {"dna": explanations, "explanations": explanations}
         return {"dna": [], "view": view}
 
+    async def evolution(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:
+        tables = {"candidates": ("dna_candidate_proposal", "proposal_id"), "fitness": ("dna_fitness_snapshot", "dna_id"), "datasets": ("dna_experience_dataset", "dataset_id"), "replay": ("dna_replay_run", "replay_id"), "campaigns": ("dna_promotion_campaign", "campaign_id")}
+        if view == "compare":
+            return {"comparisons": []}
+        table_key = tables.get(view)
+        if table_key is None:
+            return {"evolution": [], "view": view}
+        table, key = table_key
+        where = "" if identifier is None else f"WHERE {key}=?"
+        params = (limit,) if identifier is None else (identifier, limit)
+        return {view: await self._rows(f"SELECT * FROM {table} {where} ORDER BY rowid DESC LIMIT ?", params)}
+
     async def _count(self, table: str, where: str | None = None) -> int:
         row = await self._database.fetch_one(
             f"SELECT count(*) AS total FROM {table}" + (f" WHERE {where}" if where else "")
