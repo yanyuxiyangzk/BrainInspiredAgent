@@ -189,6 +189,7 @@ class QuantRuntimeService:
         daily_review: DailyReviewApp,
         daily_bindings: Mapping[tuple[str, str, str], SkillBinding],
         schedule: DailyReviewSchedule,
+        facade: QuantExecutionFacade,
     ) -> None:
         self._database = database
         self._app = app
@@ -197,6 +198,7 @@ class QuantRuntimeService:
         self._identifiers = identifiers
         self._daily_review = daily_review
         self._daily_bindings = daily_bindings
+        self._facade = facade
         consumer = TransactionalInboxConsumer(
             "quant-command", database, clock, identifiers,
             is_retryable=lambda error: isinstance(error, (OSError, RuntimeError)),
@@ -326,6 +328,20 @@ class QuantRuntimeService:
         )
         if executed.execution.status.value != "SUCCEEDED":
             raise RuntimeError(f"workflow terminal status: {executed.execution.status.value}")
+        task_row = await self._database.fetch_one(
+            "SELECT task_id FROM task WHERE grant_id=? ORDER BY created_at DESC LIMIT 1",
+            (executed.grant_id,),
+        )
+        if task_row is not None:
+            identity = await self._dna_context("market_summary")
+            await self._facade.record_dna_context(identity | {
+                "plan_id": executed.planner.plan.plan_id,
+                "decision_id": executed.decision_id, "grant_id": executed.grant_id,
+                "task_id": str(task_row["task_id"]), "run_id": executed.execution.run_id,
+                "episode_id": executed.outcome.episode_id,
+                "evaluation_id": executed.outcome.evaluation_id,
+                "correlation_id": executed.planner.plan.correlation_id,
+            })
         insight_id = str(executed.execution.output.get("notification_id", ""))
         if insight_id:
             rows = await self._database.fetch_all(
@@ -499,7 +515,7 @@ def build_quant_runtime(
     )
     service = QuantRuntimeService(
             database, app, bindings, clock, identifiers, daily_app, daily_bindings,
-            schedule or DailyReviewSchedule(),
+            schedule or DailyReviewSchedule(), facade,
         )
     engine = LoopEngine(
         RuntimeDependencies(Settings(), clock, identifiers, CapturingLogger()),
