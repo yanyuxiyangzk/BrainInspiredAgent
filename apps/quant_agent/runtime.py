@@ -75,6 +75,8 @@ from apps.quant_agent.fake_skills import (
 from apps.quant_agent.market_summary import MARKET_SUMMARY_WORKFLOW
 from apps.quant_agent.market_summary_app import MarketSummaryApp
 from brain_kernel.ports import Clock, UuidGenerator
+from domain_sdk.dna import DnaDefinition, DnaStatus
+from domain_sdk.dna_repository import PersistentDnaRegistry
 
 
 def _stamp(value: datetime) -> str:
@@ -204,6 +206,7 @@ class QuantRuntimeService:
         await self._scheduler.start()
         await self._relay.start()
         await _persist_catalog(self._database, self._clock.now())
+        await _ensure_workflow_dna(self._database, self._clock, self._identifiers)
         async with self._database.transaction() as transaction:
             await transaction.execute(
                 "UPDATE command_execution SET status='ACCEPTED', started_at=NULL "
@@ -518,3 +521,27 @@ def _catalog_value(value: Mapping[str, object]) -> tuple[str, str]:
         default=lambda item: dict(item) if isinstance(item, Mapping) else str(item),
     )
     return encoded, "sha256:" + hashlib.sha256(encoded.encode()).hexdigest()
+
+
+async def _ensure_workflow_dna(database: SQLiteDatabase, clock: Clock,
+                               identifiers: UuidGenerator) -> None:
+    """Idempotently materialize application workflows as governed DNA."""
+    registry = PersistentDnaRegistry(database, clock, identifiers)
+    for workflow in (MARKET_SUMMARY_WORKFLOW, DAILY_REVIEW_WORKFLOW):
+        dna_id, version = f"workflow.{workflow['workflow_id']}", str(workflow["version"])
+        try:
+            record = await registry.get(dna_id, version)
+        except (ValueError, RuntimeError):
+            record = await registry.register(
+                DnaDefinition.from_workflow(workflow, dna_id=dna_id, version=version,
+                                            generator={"name": "bia-runtime", "version": "1"}),
+                correlation_id="runtime.dna.bootstrap",
+            )
+        if record.dna.status is DnaStatus.CANDIDATE:
+            record = await registry.transition(dna_id, version, DnaStatus.VALIDATED,
+                expected_revision=record.revision, reason="runtime bootstrap validation",
+                correlation_id="runtime.dna.bootstrap")
+        if record.dna.status is DnaStatus.VALIDATED:
+            await registry.transition(dna_id, version, DnaStatus.SHADOW,
+                expected_revision=record.revision, reason="runtime bootstrap shadow",
+                correlation_id="runtime.dna.bootstrap")
