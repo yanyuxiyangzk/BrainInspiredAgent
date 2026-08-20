@@ -228,7 +228,7 @@ P01～P08 已证明独立装配、通用闭环、兼容升级、跨领域运维�
 | U13 | `⬜ 未开始` | P1 | BE/TL/QA | U12 | 5 | DNA 合法 transition 控制面 |
 | U14 | `⬜ 未开始` | P1 | AI/BE | U12,H06～H12 | 5 | `/evolution` 查询、Replay、Compare 和 Explain |
 | U15 | `⬜ 未开始` | P1 | TL/QA | U13,U14 | 4 | promote/rollback 与 kill switch |
-| U16 | `🟨 部分完成` | P0 | APP/BE | I04,I05,U01 | 4 | Insight cursor/stale 分页和 Subscription quiet hours/list/enable/disable 已完成；symbol/time/type 过滤待补 |
+| U16 | `✅ 已开发已测试` | P0 | APP/BE | I04,I05,U01 | 4 | Insight cursor/stale/symbol/time/type 过滤和 Subscription quiet hours/list/enable/disable |
 | U17 | `⬜ 未开始` | P0 | QA/OPS | U02～U16 | 5 | 权限矩阵、故障注入、黑盒验收和发布报告 |
 
 关键路径：`U01 → U03 → U02 → U11 → U12 → U13 → U17`。U11、U17 仍为发布阻断任务。

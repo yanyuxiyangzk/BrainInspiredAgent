@@ -8,7 +8,7 @@ import json
 import signal
 import sqlite3
 from collections.abc import Mapping, Sequence
-from datetime import time
+from datetime import datetime, time
 from pathlib import Path
 from typing import Any, TextIO, cast
 
@@ -149,6 +149,10 @@ def parser() -> argparse.ArgumentParser:
     latest.add_argument("--limit", type=int, default=10)
     latest.add_argument("--cursor")
     latest.add_argument("--stale", choices=("include", "exclude", "only"), default="include")
+    latest.add_argument("--symbol")
+    latest.add_argument("--since", type=datetime.fromisoformat)
+    latest.add_argument("--until", type=datetime.fromisoformat)
+    latest.add_argument("--type", dest="insight_type", choices=("market_summary",))
     show = insight_commands.add_parser("show")
     show.add_argument("insight_id")
     explain = insight_commands.add_parser("explain")
@@ -385,7 +389,9 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
         return {"commands": [_command_row(row) for row in rows]}
     query = MarketInsightQuery(database)
     if args.insight_command == "latest":
-        values = await query.latest(limit=args.limit, cursor=args.cursor, stale=args.stale)
+        values = await query.latest(limit=args.limit, cursor=args.cursor, stale=args.stale,
+                                    symbol=args.symbol, since=args.since, until=args.until,
+                                    insight_type=args.insight_type)
         return {"insights": [item.to_dict() for item in values],
                 "next_cursor": values[-1].insight_id if len(values) == args.limit else None}
     if args.insight_command == "show":

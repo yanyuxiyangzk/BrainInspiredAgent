@@ -52,20 +52,30 @@ class MarketInsightQuery:
 
     async def latest(
         self, *, limit: int = 10, now: datetime | None = None,
-        cursor: str | None = None, stale: str = "include",
+        cursor: str | None = None, stale: str = "include", symbol: str | None = None,
+        since: datetime | None = None, until: datetime | None = None,
+        insight_type: str | None = None,
     ) -> tuple[MarketInsight, ...]:
         if not 1 <= limit <= 100:
             raise ValueError("limit must be between 1 and 100")
         if stale not in {"include", "exclude", "only"}:
             raise ValueError("stale must be include, exclude or only")
+        if since is not None and until is not None and since > until:
+            raise ValueError("since must not be later than until")
         rows = await self._database.fetch_all(
             """SELECT notification_id FROM local_notification_delivery
                WHERE (? IS NULL OR notification_id < ?)
-               ORDER BY delivered_at DESC, notification_id DESC LIMIT ?""", (cursor, cursor, limit + 1)
+               ORDER BY delivered_at DESC, notification_id DESC LIMIT ?""", (cursor, cursor, 101)
         )
         instant = (now or datetime.now(UTC)).astimezone(UTC)
         values = tuple([await self._load(str(row["notification_id"]), instant) for row in rows])
-        filtered = tuple(item for item in values if stale == "include" or item.stale == (stale == "only"))
+        filtered = tuple(item for item in values if (
+            (stale == "include" or item.stale == (stale == "only"))
+            and (symbol is None or any(str(evidence.get("symbol", "")) == symbol for evidence in item.evidence))
+            and (since is None or item.delivered_at >= since.astimezone(UTC))
+            and (until is None or item.delivered_at <= until.astimezone(UTC))
+            and (insight_type is None or insight_type == "market_summary")
+        ))
         return filtered[:limit]
 
     async def show(self, insight_id: str, *, now: datetime | None = None) -> MarketInsight:

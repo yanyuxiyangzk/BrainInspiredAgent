@@ -64,7 +64,7 @@ MVP 只开放 `market_summary`、`daily_review` 和已有 Fake Skills。`auction
 | U13 | `⬜ 未开始` | P1 | BE/TL/QA | U12 | 5 | DNA 合法 transition：validate/shadow/canary/activate/deprecate/retire | CAS revision、父谱系、唯一 Active、确认提示、审计和并发冲突测试 |
 | U14 | `⬜ 未开始` | P1 | AI/BE | U12,H06～H12 | 5 | `/evolution` 查询 Candidate/Fitness/Dataset/Replay/Compare/Campaign/Explain | 风险硬拒绝不被均值覆盖；Dataset 版本固定；Replay 无生产副作用 |
 | U15 | `⬜ 未开始` | P1 | TL/QA | U13,U14 | 4 | promote/rollback 控制面与 kill switch；禁止自动 Active | Promotion Gate 全证据；rollback 可恢复；真实交易权限永不由演化扩展 |
-| U16 | `🟨 部分完成` | P0 | APP/BE | I04,I05,U01 | 4 | cursor/stale 分页；Subscription quiet hours/list/enable/disable | symbol/time/type 过滤仍待完成 |
+| U16 | `✅ 已开发已测试` | P0 | APP/BE | I04,I05,U01 | 4 | cursor/stale/symbol/time/type 过滤；Subscription quiet hours/list/enable/disable | 查询零副作用；时间区间校验 |
 | U17 | `⬜ 未开始` | P0 | QA/OPS | U02～U16 | 5 | 命令权限矩阵、故障注入、黑盒 Shell/CLI、文档与发布报告 | Query 0 副作用；Command 100% 经治理；强杀恢复；全量覆盖率≥95%；Critical/High=0 |
 
 关键路径：`U01 → U03 → U02 → U11 → U12 → U13 → U17`。  
