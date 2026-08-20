@@ -61,11 +61,11 @@ MVP 只开放 `market_summary`、`daily_review` 和已有 Fake Skills。`auction
 | U10 | `⬜ 未开始` | P1 | APP/BE | U03,B06,Q04 | 3 | `/schedules` 查询配置、checkpoint、触发历史；受控一次性 trigger | 交易日/时区/窗口可解释；trigger 使用稳定 occurrence key；重复执行为 0 |
 | U11 | `🟨 部分完成` | P0 | BE/TL | U03,H01.1～H12 | 5 | 底层 DNA registry/identity 已具备；Quant 默认三层 DNA 装配和真实执行接线待完成 | 未接线前不得宣称 Plan 到 Outcome 已持有 DNA context |
 | U12 | `🟨 部分完成` | P0 | APP/BE | U11 | 4 | `/dna` list/active/show/lineage/explain/executions 查询已提供 | 查询零副作用；执行归因读取 append-only context |
-| U13 | `⬜ 未开始` | P1 | BE/TL/QA | U12 | 5 | DNA 合法 transition：validate/shadow/canary/activate/deprecate/retire | CAS revision、父谱系、唯一 Active、确认提示、审计和并发冲突测试 |
-| U14 | `⬜ 未开始` | P1 | AI/BE | U12,H06～H12 | 5 | `/evolution` 查询 Candidate/Fitness/Dataset/Replay/Compare/Campaign/Explain | 风险硬拒绝不被均值覆盖；Dataset 版本固定；Replay 无生产副作用 |
-| U15 | `⬜ 未开始` | P1 | TL/QA | U13,U14 | 4 | promote/rollback 控制面与 kill switch；禁止自动 Active | Promotion Gate 全证据；rollback 可恢复；真实交易权限永不由演化扩展 |
+| U13 | `✅ 已开发已测试` | P1 | BE/TL/QA | U12 | 5 | DNA 合法 transition：validate/shadow/canary/activate/deprecate/retire | CAS/reason/yes 已接入；复用底层状态机和审计 |
+| U14 | `🟨 部分完成` | P1 | AI/BE | U12,H06～H12 | 5 | `/evolution` 查询和 Explain 已提供 | Replay/Compare 实际证据操作待补 |
+| U15 | `🟨 部分完成` | P1 | TL/QA | U13,U14 | 4 | promote/rollback/kill 入口安全拒绝 | Promotion Gate 接线待完成；禁止自动 Active |
 | U16 | `✅ 已开发已测试` | P0 | APP/BE | I04,I05,U01 | 4 | cursor/stale/symbol/time/type 过滤；Subscription quiet hours/list/enable/disable | 查询零副作用；时间区间校验 |
-| U17 | `⬜ 未开始` | P0 | QA/OPS | U02～U16 | 5 | 命令权限矩阵、故障注入、黑盒 Shell/CLI、文档与发布报告 | Query 0 副作用；Command 100% 经治理；强杀恢复；全量覆盖率≥95%；Critical/High=0 |
+| U17 | `🟨 部分完成` | P0 | QA/OPS | U02～U16 | 5 | 静态检查、全量测试和命令面回归通过；黑盒/故障注入/发布报告待补 | Query 0 副作用；Command 100% 经治理；强杀恢复；全量覆盖率≥95%；Critical/High=0 |
 
 关键路径：`U01 → U03 → U02 → U11 → U12 → U13 → U17`。  
 并行路径：`U04/U05/U08/U16` 可在 U01 后并行；`U06/U07/U10` 在对应查询端口完成后并行；`U14/U15` 依赖 DNA 执行归因。

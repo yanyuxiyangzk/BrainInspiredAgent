@@ -225,11 +225,11 @@ P01～P08 已证明独立装配、通用闭环、兼容升级、跨领域运维�
 | U10 | `⬜ 未开始` | P1 | APP/BE | U03,B06,Q04 | 3 | `/schedules` 查询和受控 trigger |
 | U11 | `🟨 部分完成` | P0 | BE/TL | U03,H01.1～H12 | 5 | DNA registry/identity 底层已具备；Quant 默认三层 DNA 注册、激活和真实执行接线待完成 |
 | U12 | `🟨 部分完成` | P0 | APP/BE | U11 | 4 | `/dna` list/active/show/lineage/explain/executions 查询已提供；当前执行归因为空时如实返回 |
-| U13 | `⬜ 未开始` | P1 | BE/TL/QA | U12 | 5 | DNA 合法 transition 控制面 |
-| U14 | `⬜ 未开始` | P1 | AI/BE | U12,H06～H12 | 5 | `/evolution` 查询、Replay、Compare 和 Explain |
-| U15 | `⬜ 未开始` | P1 | TL/QA | U13,U14 | 4 | promote/rollback 与 kill switch |
+| U13 | `✅ 已开发已测试` | P1 | BE/TL/QA | U12 | 5 | DNA 合法 transition 控制面；CAS/reason/yes 治理约束 |
+| U14 | `🟨 部分完成` | P1 | AI/BE | U12,H06～H12 | 5 | `/evolution` 查询和 Explain 已提供；Replay/Compare 实际证据操作待补 |
+| U15 | `🟨 部分完成` | P1 | TL/QA | U13,U14 | 4 | promote/rollback/kill 入口安全拒绝；Promotion Gate 接线待完成 |
 | U16 | `✅ 已开发已测试` | P0 | APP/BE | I04,I05,U01 | 4 | Insight cursor/stale/symbol/time/type 过滤和 Subscription quiet hours/list/enable/disable |
-| U17 | `⬜ 未开始` | P0 | QA/OPS | U02～U16 | 5 | 权限矩阵、故障注入、黑盒验收和发布报告 |
+| U17 | `🟨 部分完成` | P0 | QA/OPS | U02～U16 | 5 | 静态检查、全量测试和命令面回归通过；黑盒/故障注入/发布报告待补 |
 
 关键路径：`U01 → U03 → U02 → U11 → U12 → U13 → U17`。U11、U17 仍为发布阻断任务。
 

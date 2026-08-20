@@ -86,7 +86,7 @@ def parser() -> argparse.ArgumentParser:
         "skills": ("list", "show", "health", "bindings"),
         "workflows": ("list", "active", "show", "runs"),
         "dna": ("list", "active", "show", "lineage", "explain", "executions", "transition"),
-        "evolution": ("candidates", "fitness", "datasets", "replay", "compare", "campaigns"),
+        "evolution": ("candidates", "fitness", "datasets", "replay", "compare", "campaigns", "explain", "promote", "rollback", "kill"),
     }.items():
         query = commands.add_parser(name, help=f"query {name}")
         query.add_argument("view", choices=choices, nargs="?", default=choices[0])
@@ -285,6 +285,9 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
                         "governed": True}
             return await surface_query.dna(args.view, args.limit, args.identifier)
         if args.command == "evolution":
+            if args.view in {"promote", "rollback", "kill"}:
+                return {"status": "REJECTED", "governed": True,
+                        "reason": "Promotion control requires Promotion Gate evidence and explicit governance adapter"}
             return await surface_query.evolution(args.view, args.limit, args.identifier)
         return await surface_query.catalog(args.view, args.limit, args.identifier)
     if args.command == "stop":

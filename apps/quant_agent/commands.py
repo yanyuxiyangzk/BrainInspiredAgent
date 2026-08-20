@@ -24,7 +24,7 @@ COMMAND_SPECS = (
     CommandSpec("/skills", "inspect registered skills", "/skills [list|show|health|bindings]"),
     CommandSpec("/workflows", "inspect registered workflows and runs", "/workflows [list|active|show|runs]"),
     CommandSpec("/dna", "inspect or govern DNA definitions", "/dna [list|active|show|lineage|explain|executions|transition]"),
-    CommandSpec("/evolution", "inspect DNA evolution evidence", "/evolution [candidates|fitness|datasets|replay|compare|campaigns]"),
+    CommandSpec("/evolution", "inspect DNA evolution evidence", "/evolution [candidates|fitness|datasets|replay|compare|campaigns|explain|promote|rollback|kill]"),
     CommandSpec("/market", "submit a governed market summary", "/market SYMBOLS [--title TEXT]"),
     CommandSpec("/commands", "list or inspect command receipts", "/commands [MESSAGE_ID]", ("commands",)),
     CommandSpec("/insights", "query and explain market insights", "/insights [latest|show|explain]", ("insights", "latest")),

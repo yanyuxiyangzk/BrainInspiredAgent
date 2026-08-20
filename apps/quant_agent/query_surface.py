@@ -169,6 +169,17 @@ class CommandSurfaceQuery:
         tables = {"candidates": ("dna_candidate_proposal", "proposal_id"), "fitness": ("dna_fitness_snapshot", "dna_id"), "datasets": ("dna_experience_dataset", "dataset_id"), "replay": ("dna_replay_run", "replay_id"), "campaigns": ("dna_promotion_campaign", "campaign_id")}
         if view == "compare":
             return {"comparisons": []}
+        if view == "explain":
+            rows = await self._rows(
+                "SELECT explanation_id,dna_id,dna_version,content_digest,document_json,"
+                "explanation_digest,explained_at,correlation_id FROM dna_explanation "
+                "WHERE (? IS NULL OR explanation_id=? OR dna_id=?) "
+                "ORDER BY explained_at DESC LIMIT ?",
+                (identifier, identifier, identifier, limit),
+            )
+            for row in rows:
+                row["document"] = json.loads(str(row.pop("document_json")))
+            return {"explanations": rows}
         table_key = tables.get(view)
         if table_key is None:
             return {"evolution": [], "view": view}
