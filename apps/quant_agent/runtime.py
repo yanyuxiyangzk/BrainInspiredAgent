@@ -330,6 +330,12 @@ class QuantRuntimeService:
             raise ValueError("task does not exist")
         status = str(row["status"])
         action = command.removeprefix("task.")
+        if action == "retry":
+            grant = await self._database.fetch_one(
+                "SELECT bindings_json FROM execution_grant WHERE grant_id=?", (row["grant_id"],)
+            )
+            if grant is not None and "NON_REPLAYABLE" in str(grant["bindings_json"]):
+                raise ValueError("retry rejected: task binding is NON_REPLAYABLE")
         raise ValueError(
             f"{action} rejected for task in {status}: a live MotorExec control handle and "
             "new governed grant are required"
