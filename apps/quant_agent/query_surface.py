@@ -34,6 +34,23 @@ class CommandSurfaceQuery:
         return {"mode": health.get("brain", "UNKNOWN"), "health": health.get("status"),
                 "active_tasks": tasks, "derived": True}
 
+    async def attention(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:
+        rows = await self._safe_rows("evidence_ledger", limit, identifier, "evidence_id")
+        return {"attention": rows, "view": view, "derived": True}
+
+    async def goals(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:
+        rows = await self._safe_rows("plan", limit, identifier, "plan_id")
+        return {"goals": rows, "view": view, "derived": True}
+
+    async def memory(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:
+        table = "semantic_memory" if view in {"semantic", "search", "candidates"} else "episode"
+        rows = await self._safe_rows(table, limit, identifier, None)
+        return {"memory": rows, "view": view, "derived": view in {"working", "candidates"}}
+
+    async def schedules(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:
+        rows = await self._safe_rows("schedule_checkpoint", limit, identifier, "schedule_id")
+        return {"schedules": rows, "view": view}
+
     async def events(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:
         if view == "show":
             rows = await self._rows(
@@ -196,3 +213,13 @@ class CommandSurfaceQuery:
 
     async def _rows(self, statement: str, params: Sequence[Any]) -> list[dict[str, object]]:
         return [dict(row) for row in await self._database.fetch_all(statement, params)]
+
+    async def _safe_rows(self, table: str, limit: int, identifier: str | None,
+                         key: str | None) -> list[dict[str, object]]:
+        exists = await self._database.fetch_one(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,))
+        if exists is None:
+            return []
+        where = "" if identifier is None or key is None else f"WHERE {key}=?"
+        params: Sequence[object] = (limit,) if not where else (identifier, limit)
+        return await self._rows(f"SELECT * FROM {table} {where} ORDER BY rowid DESC LIMIT ?", params)

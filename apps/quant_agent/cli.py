@@ -79,6 +79,9 @@ def parser() -> argparse.ArgumentParser:
     for name, choices in {
         "system": ("status", "health", "diagnose", "metrics", "logs", "migrations"),
         "brain": ("state", "areas", "cycles"),
+        "attention": ("recent", "explain", "metrics"),
+        "goals": ("active", "show", "history"),
+        "memory": ("working", "episodes", "semantic", "search", "candidates", "consolidate"),
         "events": ("recent", "show", "correlation", "inbox", "outbox", "dead-letter"),
         "plans": ("recent", "show", "rejected"),
         "tasks": ("list", "running", "failed", "show", "trace", "cancel", "retry"),
@@ -87,6 +90,7 @@ def parser() -> argparse.ArgumentParser:
         "workflows": ("list", "active", "show", "runs"),
         "dna": ("list", "active", "show", "lineage", "explain", "executions", "transition"),
         "evolution": ("candidates", "fitness", "datasets", "replay", "compare", "campaigns", "explain", "promote", "rollback", "kill"),
+        "schedules": ("list", "show", "history", "trigger"),
     }.items():
         query = commands.add_parser(name, help=f"query {name}")
         query.add_argument("view", choices=choices, nargs="?", default=choices[0])
@@ -210,8 +214,8 @@ async def run(
 async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> object:
     if args.command == "start":
         return {"status": "READY", "database": str(Path(args.database).resolve())}
-    if args.command in {"system", "brain", "events", "plans", "tasks", "catalog",
-                        "skills", "workflows", "dna", "evolution"}:
+    if args.command in {"system", "brain", "attention", "goals", "memory", "events", "plans", "tasks", "catalog",
+                        "skills", "workflows", "dna", "evolution", "schedules"}:
         if args.command == "tasks" and args.view in {"cancel", "retry"}:
             if not args.identifier:
                 raise ValueError("task identifier is required")
@@ -256,6 +260,12 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
             return {"status": "READY", "facts": counts}
         if args.command == "brain":
             return await surface_query.brain(args.view, args.limit)
+        if args.command == "attention":
+            return await surface_query.attention(args.view, args.limit, args.identifier)
+        if args.command == "goals":
+            return await surface_query.goals(args.view, args.limit, args.identifier)
+        if args.command == "memory":
+            return await surface_query.memory(args.view, args.limit, args.identifier)
         if args.command == "events":
             return await surface_query.events(args.view, args.limit, args.identifier)
         if args.command == "plans":
@@ -289,6 +299,11 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
                 return {"status": "REJECTED", "governed": True,
                         "reason": "Promotion control requires Promotion Gate evidence and explicit governance adapter"}
             return await surface_query.evolution(args.view, args.limit, args.identifier)
+        if args.command == "schedules":
+            if args.view == "trigger":
+                return {"status": "REJECTED", "governed": True,
+                        "reason": "schedule trigger requires CommandAdapter governance"}
+            return await surface_query.schedules(args.view, args.limit, args.identifier)
         return await surface_query.catalog(args.view, args.limit, args.identifier)
     if args.command == "stop":
         return {"status": "STOP_REQUEST_ACCEPTED", "note": "no background daemon is managed"}

@@ -17,6 +17,9 @@ class CommandSpec:
 COMMAND_SPECS = (
     CommandSpec("/system", "inspect operational system facts", "/system [status|health|diagnose|metrics|logs|migrations]"),
     CommandSpec("/brain", "show derived cognitive state", "/brain [state|areas|cycles]"),
+    CommandSpec("/attention", "inspect attention evidence", "/attention [recent|explain|metrics]"),
+    CommandSpec("/goals", "inspect goal definitions", "/goals [active|show|history]"),
+    CommandSpec("/memory", "inspect durable memory", "/memory [working|episodes|semantic|search|candidates|consolidate]"),
     CommandSpec("/events", "inspect event delivery facts", "/events [recent|show|correlation|inbox|dead-letter]"),
     CommandSpec("/plans", "inspect plans and decisions", "/plans [recent|show|rejected]"),
     CommandSpec("/tasks", "inspect or control durable tasks", "/tasks [list|running|failed|show|trace|cancel|retry]"),
@@ -35,6 +38,7 @@ COMMAND_SPECS = (
     CommandSpec("/status", "show durable platform status", "/status", ("status",)),
     CommandSpec("/diagnose", "show a diagnostic snapshot", "/diagnose", ("diagnose",)),
     CommandSpec("/loop", "inspect the active LoopEngine supervisor", "/loop [status|services|lag|checkpoints]"),
+    CommandSpec("/schedules", "inspect schedule checkpoints", "/schedules [list|show|history|trigger]"),
     CommandSpec("/trace", "replay a governed correlation trace", "/trace CORRELATION_ID"),
     CommandSpec("/help", "show commands or detailed command help", "/help [COMMAND]"),
     CommandSpec("/exit", "stop cleanly and leave", "/exit", aliases=("/quit",)),
