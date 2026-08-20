@@ -34,11 +34,18 @@ from active_agent_platform.events import (
     TransactionalInboxConsumer,
 )
 from active_agent_platform.events.models import DeliveryResult
-from active_agent_platform.foundation import SystemClock, Uuid7Generator
+from active_agent_platform.foundation import (
+    CapturingLogger,
+    RuntimeDependencies,
+    Settings,
+    SystemClock,
+    Uuid7Generator,
+)
 from active_agent_platform.motor import MotorExec
 from active_agent_platform.plan_validation import PlanValidator
 from active_agent_platform.rest_repair import RestRepair
 from active_agent_platform.risk import RiskBudget, RiskGate, RiskPolicy
+from active_agent_platform.runtime import LoopEngine
 from active_agent_platform.scheduler import MissedTriggerPolicy, Scheduler, ScheduleSpec
 from active_agent_platform.skills import (
     CancellationToken,
@@ -73,6 +80,7 @@ def _stamp(value: datetime) -> str:
 class QuantRuntimeComponents:
     database: SQLiteDatabase
     service: QuantRuntimeService
+    engine: LoopEngine
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,6 +236,26 @@ class QuantRuntimeService:
             await self._finish(command_id, "SUCCEEDED", result, None)
         return True
 
+    async def operational_snapshot(self) -> dict[str, object]:
+        """Return bounded operational facts for the LoopEngine command surface."""
+        commands = await self._database.fetch_one(
+            "SELECT count(*) AS total FROM command_execution WHERE status IN ('ACCEPTED','RUNNING')"
+        )
+        outbox = await self._database.fetch_one(
+            "SELECT count(*) AS total FROM outbox_event WHERE publish_state != 'PUBLISHED'"
+        )
+        checkpoints = await self._database.fetch_all(
+            "SELECT schedule_id,occurrence_key,status,consumed_at "
+            "FROM schedule_checkpoint ORDER BY occurrence_key DESC LIMIT 20"
+        )
+        return {
+            "lag": {
+                "commands": 0 if commands is None else int(commands["total"]),
+                "outbox": 0 if outbox is None else int(outbox["total"]),
+            },
+            "checkpoints": [dict(row) for row in checkpoints],
+        }
+
     async def _execute(self, row: Mapping[str, Any]) -> Mapping[str, object]:
         args = json.loads(str(row["args_json"]))
         now = self._clock.now().astimezone(UTC)
@@ -313,6 +341,7 @@ class QuantRuntimeService:
         self._accepting = False
         await self._scheduler.quiesce()
         await self._relay.quiesce()
+        self._stopping.set()
 
     async def checkpoint(self) -> None:
         await self._scheduler.checkpoint()
@@ -405,12 +434,15 @@ def build_quant_runtime(
         MotorExec(database, runtime, clock=clock, identifiers=identifiers),
         clock, identifiers,
     )
-    return QuantRuntimeComponents(
-        database, QuantRuntimeService(
+    service = QuantRuntimeService(
             database, app, bindings, clock, identifiers, daily_app, daily_bindings,
             schedule or DailyReviewSchedule(),
         )
+    engine = LoopEngine(
+        RuntimeDependencies(Settings(), clock, identifiers, CapturingLogger()),
+        (service,), critical_services=frozenset({service.name}),
     )
+    return QuantRuntimeComponents(database, service, engine)
 
 
 class _RuntimeLogger:

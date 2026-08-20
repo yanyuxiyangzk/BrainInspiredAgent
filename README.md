@@ -54,6 +54,32 @@ uv run python -m apps.hello_research
 
 ## 启动量化闭环
 
+推荐先安装本地命令，然后直接进入交互终端；不带子命令执行 `bia` 会自动启动 Runtime，数据默认保存在 `~/.local/state/bia/bia.db`：
+
+```bash
+uv tool install --editable .
+bia
+```
+
+进入后使用 Slash Command：
+
+```text
+/market INDEX.TEST,INDEX.DEMO --title "今日市场摘要"
+/commands
+/insights
+/health
+/loop status
+/loop services
+/loop lag
+/loop checkpoints
+/help
+/exit
+```
+
+在真实终端中输入 `/` 时会立即出现 Slash Command 菜单；继续输入 `/h`，菜单会实时过滤为 `/health`、`/help`。可以用上下键选择、回车执行，也可以继续输入完整命令。
+
+下面的非交互方式继续保留，适合脚本、systemd 和自动化调用。
+
 终端一启动常驻 Runtime：
 
 ```bash

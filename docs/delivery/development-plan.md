@@ -207,6 +207,32 @@ P01～P08 已证明独立装配、通用闭环、兼容升级、跨领域运维�
 
 阶段出口：用户在新目录执行一条前台启动命令后，另一个终端提交市场摘要请求，可以观察状态从 `ACCEPTED` 进入明确终态，并查询包含 Evidence、版本和 correlation 的 Insight；进程重启不丢请求、不重复执行或交付。此阶段仍使用 Fake Market/Fake Summary/LocalNotification，不宣称提供实时行情或生产外部通知。
 
+## 类脑 Agent 命令面（MVP 0.2）
+
+详细命令树、使用方式、DoD 和发布门见[类脑 Agent 命令面 MVP 计划](command-surface-mvp-plan.md)，专家结论见[命令面 MVP 专家审查](../reviews/command-surface-mvp-expert-review-2026-08-19.md)。本表是任务状态的唯一基线。
+
+| ID | 状态 | 优先级 | 负责人 | 依赖 | 估算 | 目标 |
+|---|---|---:|---|---|---:|---|
+| U01 | `✅ 已开发已测试` | P0 | APP/BE | Q08 | 2 | 统一 `CommandSpec`、分层帮助、实时补全、别名和 Shell/CLI 路由；TTY/非 TTY 契约测试通过 |
+| U02 | `⬜ 未开始` | P0 | BE/OPS | U01,I02,I03 | 3 | `/system`、`/brain` 查询入口 |
+| U03 | `✅ 已开发已测试` | P0 | BE/TL | U01,A03,Q07 | 4 | Quant CLI/Shell 均由唯一 LoopEngine/Supervisor 托管；`/loop status/services/lag/checkpoints` 读取真实快照和权威事实 |
+| U04 | `⬜ 未开始` | P0 | BE/OPS | U01,B01～B03,G01 | 3 | `/events`、Inbox/Outbox/死信查询 |
+| U05 | `⬜ 未开始` | P0 | APP/BE | U01,F01～F06,G01 | 4 | `/plans`、`/tasks` 查询与受控 cancel/retry |
+| U06 | `⬜ 未开始` | P1 | AI/BE | U02,E02～E05 | 3 | `/attention`、`/goals` 查询解释 |
+| U07 | `⬜ 未开始` | P1 | BE/AI | U01,E06,G01,G04,G05 | 4 | `/memory` 查询、检索与受控巩固 |
+| U08 | `⬜ 未开始` | P0 | APP/BE | U01,A07,C01,D01 | 3 | `/catalog`、`/skills`、`/workflows` 查询 |
+| U09 | `⬜ 未开始` | P1 | BE/TL | U08,D04,C01 | 4 | Skill/Workflow 治理状态变更 |
+| U10 | `⬜ 未开始` | P1 | APP/BE | U03,B06,Q04 | 3 | `/schedules` 查询和受控 trigger |
+| U11 | `⬜ 未开始` | P0 | BE/TL | U03,H01.1～H12 | 5 | Quant 接入 OrganizationGovernedApp 和三层 DNA 身份 |
+| U12 | `⬜ 未开始` | P0 | APP/BE | U11 | 4 | `/dna` 查询、谱系、解释和执行归因 |
+| U13 | `⬜ 未开始` | P1 | BE/TL/QA | U12 | 5 | DNA 合法 transition 控制面 |
+| U14 | `⬜ 未开始` | P1 | AI/BE | U12,H06～H12 | 5 | `/evolution` 查询、Replay、Compare 和 Explain |
+| U15 | `⬜ 未开始` | P1 | TL/QA | U13,U14 | 4 | promote/rollback 与 kill switch |
+| U16 | `⬜ 未开始` | P0 | APP/BE | I04,I05,U01 | 4 | Insight 完整过滤/分页/字段与 Subscription 偏好 |
+| U17 | `⬜ 未开始` | P0 | QA/OPS | U02～U16 | 5 | 权限矩阵、故障注入、黑盒验收和发布报告 |
+
+关键路径：`U01 → U03 → U02 → U11 → U12 → U13 → U17`。U11、U17 仍为发布阻断任务。
+
 ## DNA 演化 MVP（下一阶段）
 
 DNA 将现有 Workflow JSON 作为执行编码，由 Runtime 解释、Skill 插件实现；自动变化只产生候选，必须经过验证、Shadow/Canary 和显式治理才能激活。详细计划见 [DNA MVP 计划](dna-mvp-plan.md)。H01.1～H12、T07.1/T07.2 已完成：Workflow DNA 演化闭环、Agent DNA 认知策略、Organization DNA 多 Agent 治理，以及三层身份归因和实际组织委派执行入口已经连成全链路。

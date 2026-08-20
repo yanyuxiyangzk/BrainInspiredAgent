@@ -10,7 +10,7 @@ import sqlite3
 from collections.abc import Mapping, Sequence
 from datetime import time
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO, cast
 
 from active_agent_platform.diagnostics import HealthService
 from active_agent_platform.foundation import SystemClock, Uuid7Generator
@@ -28,11 +28,44 @@ EXIT_NOT_FOUND = 4
 EXIT_UNAVAILABLE = 5
 
 
+class _LegacyEngineAdapter:  # pragma: no cover - compatibility for pre-U03 test plugins
+    """Compatibility adapter for tests/plugins returning pre-U03 components."""
+    def __init__(self, service: object) -> None:
+        self._service = service
+        self._started = asyncio.Event()
+
+    async def run(self) -> None:
+        self._started.set()
+        await self._service.start()  # type: ignore[attr-defined]
+        try:
+            await self._service.serve()  # type: ignore[attr-defined]
+        finally:
+            await self._service.quiesce()  # type: ignore[attr-defined]
+            await self._service.checkpoint()  # type: ignore[attr-defined]
+            await self._service.stop()  # type: ignore[attr-defined]
+
+    async def wait_started(self) -> None:
+        await self._started.wait()
+
+    def request_shutdown(self) -> None:
+        return
+
+    def health(self) -> object:
+        class Snapshot:
+            instance_id = "legacy"
+            system = type("System", (), {"value": "HEALTHY"})()
+        return Snapshot()
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="bia", description="Local brain-agent control and query CLI")
-    root.add_argument("--database", default="bia.db", help="SQLite fact database")
+    root.add_argument(
+        "--database", default=str(Path.home() / ".local" / "state" / "bia" / "bia.db"),
+        help="SQLite fact database",
+    )
     root.add_argument("--format", choices=("json", "markdown"), default="json")
     commands = root.add_subparsers(dest="command", required=True)
+    commands.add_parser("shell", help="open the interactive BIA slash-command terminal")
     commands.add_parser("start", help="initialize the local fact store")
     runtime = commands.add_parser("run", help="run the quant command worker until SIGINT/SIGTERM")
     runtime.add_argument("--daily-review-at", default="18:00", metavar="HH:MM")
@@ -43,6 +76,9 @@ def parser() -> argparse.ArgumentParser:
                          default="FIRE_ONCE")
     runtime.add_argument("--daily-review-all-days", action="store_true")
     commands.add_parser("status", help="show durable platform status")
+    loop_status = commands.add_parser("loop", help="inspect LoopEngine state")
+    loop_status.add_argument("loop_command", choices=("status", "services", "lag", "checkpoints"),
+                             nargs="?", default="status")
     commands.add_parser("health", help="check database liveness and readiness")
     diagnose = commands.add_parser("diagnose", help="show a read-only diagnostic snapshot")
     diagnose.add_argument("--limit", type=int, default=20)
@@ -93,12 +129,19 @@ def parser() -> argparse.ArgumentParser:
     return root
 
 
-async def run(argv: Sequence[str], stdout: TextIO, stderr: TextIO) -> int:
+async def run(
+    argv: Sequence[str], stdout: TextIO, stderr: TextIO, stdin: TextIO | None = None,
+) -> int:
     try:
         args = parser().parse_args(list(argv))
     except SystemExit as error:
         return error.code if isinstance(error.code, int) else EXIT_USAGE
     database_path = Path(args.database)
+    if args.command == "shell":
+        import sys
+
+        from apps.quant_agent.shell import interactive
+        return await interactive(database_path, stdin or sys.stdin, stdout, stderr)
     if args.command in {"start", "run"}:
         from apps.quant_agent.startup import prepare_runtime_paths
         try:
@@ -191,6 +234,13 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
             row = await database.fetch_one(f"SELECT count(*) AS count FROM {table}")
             counts[table] = 0 if row is None else int(row["count"])
         return {"status": "HEALTHY", "ready": True, "facts": counts}
+    if args.command == "loop":
+        return {
+            "status": "UNKNOWN",
+            "scope": args.loop_command,
+            "reason": "LoopEngine snapshots are process-local",
+            "next_action": "run bia and use /loop inside the interactive terminal",
+        }
     if args.command == "replay":
         bundle = await TraceQuery(database).by_correlation(str(args.correlation_id))
         return {name: _plain(getattr(bundle, name)) for name in (
@@ -310,6 +360,7 @@ async def _run_runtime(
         return EXIT_USAGE
     await components.database.initialize()
     service = components.service
+    engine = getattr(components, "engine", _LegacyEngineAdapter(service))
     loop = asyncio.get_running_loop()
     stopped = asyncio.Event()
 
@@ -322,22 +373,26 @@ async def _run_runtime(
         except NotImplementedError:
             pass
     try:
-        await service.start()
+        serving = asyncio.create_task(engine.run(), name="quant-loop-engine")
+        await engine.wait_started()
+        snapshot = cast(Any, engine.health())
+        if snapshot.system.value not in {"HEALTHY", "DEGRADED"}:
+            engine.request_shutdown()
+            await serving
+            raise RuntimeError(f"LoopEngine failed to become ready: {snapshot.system.value}")
         stdout.write(json.dumps({
             "status": "READY", "database": str(database_path.resolve()),
-            "service": service.name,
+            "service": service.name, "loop_instance": snapshot.instance_id,
+            "loop_health": snapshot.system.value,
         }, sort_keys=True) + "\n")
         stdout.flush()
-        serving = asyncio.create_task(service.serve(), name="quant-runtime")
         stop_waiter = asyncio.create_task(stopped.wait(), name="quant-stop-waiter")
         done, _ = await asyncio.wait(
             (serving, stop_waiter), return_when=asyncio.FIRST_COMPLETED
         )
         if serving in done:
             await serving
-        await service.quiesce()
-        await service.checkpoint()
-        await service.stop()
+        engine.request_shutdown()
         if not serving.done():
             await serving
         if not stop_waiter.done():
@@ -352,4 +407,15 @@ async def _run_runtime(
 
 def main() -> int:
     import sys
-    return asyncio.run(run(sys.argv[1:], sys.stdout, sys.stderr))
+    arguments = list(sys.argv[1:])
+    commands = {
+        "shell", "start", "run", "status", "loop", "health", "diagnose", "metrics", "stop",
+        "inject", "market", "subscriptions", "replay", "log", "commands", "insights",
+    }
+    if not any(value in commands for value in arguments):
+        arguments.append("shell")
+    try:
+        return asyncio.run(run(arguments, sys.stdout, sys.stderr, sys.stdin))
+    except KeyboardInterrupt:
+        sys.stdout.write("\nBIA terminal stopped.\n")
+        return 130

@@ -152,6 +152,15 @@ async def test_q07_service_loop_polls_and_checkpoints(tmp_path: Path) -> None:
     serving = asyncio.create_task(components.service.serve())
     await asyncio.sleep(0.15)
     await components.service.checkpoint()
+    snapshot = await components.service.operational_snapshot()
+    assert snapshot == {"lag": {"commands": 0, "outbox": 0}, "checkpoints": []}
+    async with components.database.transaction() as transaction:
+        await transaction.execute(
+            "INSERT INTO schedule_checkpoint(schedule_id,occurrence_key,status,consumed_at) "
+            "VALUES ('demo','2026-08-20','FIRED','2026-08-20T00:00:00Z')"
+        )
+    populated = await components.service.operational_snapshot()
+    assert populated["checkpoints"]
     await components.service.stop()
     await asyncio.wait_for(serving, timeout=1)
     await components.database.close()
