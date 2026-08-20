@@ -400,8 +400,25 @@ class QuantRuntimeService:
         state = BrainState(
             MarketPhase.CLOSED, Workload.IDLE, BrainMode.REVIEW, self._clock.now()
         )
-        await self._daily_review.execute(business_date, state, self._daily_bindings,
-                                         dna_context=await self._dna_context("daily_review"))
+        result = await self._daily_review.execute(
+            business_date, state, self._daily_bindings,
+            dna_context=await self._dna_context("daily_review"),
+        )
+        if result.execution is not None and result.execution.status.value == "SUCCEEDED":
+            row = await self._database.fetch_one(
+                "SELECT p.plan_id,d.decision_id,g.grant_id,t.task_id,w.run_id,"
+                "e.episode_id,e.evaluation_id,w.correlation_id "
+                "FROM workflow_run w JOIN task t ON t.task_id=w.task_id "
+                "JOIN execution_grant g ON g.grant_id=t.grant_id "
+                "JOIN plan_decision d ON d.decision_id=g.decision_id "
+                "JOIN plan p ON p.plan_id=d.plan_id "
+                "LEFT JOIN outcome_evaluation e ON e.task_id=t.task_id "
+                "WHERE w.run_id=?", (result.execution.run_id,),
+            )
+            if row is not None:
+                await self._facade.record_dna_context(
+                    (await self._dna_context("daily_review")) | dict(row)
+                )
 
     async def _dna_context(self, workflow_role: str) -> dict[str, object]:
         rows = await self._database.fetch_all(
@@ -410,8 +427,16 @@ class QuantRuntimeService:
             "workflow_content_digest FROM dna_execution_context "
             "ORDER BY rowid DESC LIMIT 1")
         if rows:
+            identity = dict(rows[0])
             return {"workflow_role": workflow_role, "source": "runtime.dna.bootstrap",
-                    "execution_identity": dict(rows[0])}
+                    "organization_dna_id": identity["organization_dna_id"],
+                    "organization_version": identity["organization_version"],
+                    "organization_content_digest": identity["organization_content_digest"],
+                    "agent_dna_id": identity["agent_dna_id"], "agent_version": identity["agent_version"],
+                    "agent_content_digest": identity["agent_content_digest"],
+                    "workflow_dna_id": identity["workflow_dna_id"], "workflow_version": identity["workflow_version"],
+                    "workflow_content_digest": identity["workflow_content_digest"],
+                    "organization_role": "lead", "context_digest": "runtime.bootstrap"}
         return {"workflow_role": workflow_role, "source": "runtime.dna.bootstrap"}
 
     async def quiesce(self) -> None:
