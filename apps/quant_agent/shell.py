@@ -38,7 +38,9 @@ BANNER = r"""
              ╰───────╮         │         ╭───────╯
                      ╰─────────┴─────────╯
                          COGNITIVE AGENT
-                     类脑 Agent · Cognitive Runtime
+                  类脑 Agent · Cognitive Runtime
+             感知 · 记忆 · 推理 · 规划 · 执行 · 复盘
+        欢迎进入 BIA 类脑智能终端，输入 /help 开始探索
 """
 
 SHELL_STYLE = Style.from_dict({
