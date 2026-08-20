@@ -185,7 +185,16 @@ class CommandSurfaceQuery:
     async def evolution(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:
         tables = {"candidates": ("dna_candidate_proposal", "proposal_id"), "fitness": ("dna_fitness_snapshot", "dna_id"), "datasets": ("dna_experience_dataset", "dataset_id"), "replay": ("dna_replay_run", "replay_id"), "campaigns": ("dna_promotion_campaign", "campaign_id")}
         if view == "compare":
-            return {"comparisons": []}
+            ids = tuple(item.strip() for item in (identifier or "").split(",") if item.strip())
+            if len(ids) != 2:
+                return {"comparisons": [], "reason": "compare requires two comma-separated DNA IDs"}
+            rows = await self._rows(
+                "SELECT dna_id,version,window_id,sample_count,success_rate,evidence_score,"
+                "user_value_score,stability_rate,risk_rate,readiness FROM dna_fitness_snapshot "
+                "WHERE dna_id IN (?,?) ORDER BY dna_id,projected_at DESC LIMIT ?",
+                (ids[0], ids[1], limit * 2),
+            )
+            return {"comparisons": rows, "identifiers": list(ids)}
         if view == "explain":
             rows = await self._rows(
                 "SELECT explanation_id,dna_id,dna_version,content_digest,document_json,"
