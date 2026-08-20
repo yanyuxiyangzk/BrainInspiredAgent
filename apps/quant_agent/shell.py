@@ -38,6 +38,7 @@ BANNER = r"""
              ╰───────╮         │         ╭───────╯
                      ╰─────────┴─────────╯
                          COGNITIVE AGENT
+                     类脑 Agent · Cognitive Runtime
 """
 
 SHELL_STYLE = Style.from_dict({
