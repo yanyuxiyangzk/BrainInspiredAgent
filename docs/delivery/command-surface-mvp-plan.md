@@ -59,8 +59,8 @@ MVP 只开放 `market_summary`、`daily_review` 和已有 Fake Skills。`auction
 | U08 | `✅ 已开发已测试` | P0 | APP/BE | U01,A07,C01,D01 | 3 | Runtime 幂等持久化校验目录；`/catalog`、`/skills`、`/workflows` 查询 | 真实 Schema/digest/status，未暴露 Adapter 实现 |
 | U09 | `⬜ 未开始` | P1 | BE/TL | U08,D04,C01 | 4 | Skill enable/disable、Workflow validate/activate/deprecate 治理命令 | 显式版本/revision；兼容性、引用和活动 Run 检查；全部写 transition/audit |
 | U10 | `⬜ 未开始` | P1 | APP/BE | U03,B06,Q04 | 3 | `/schedules` 查询配置、checkpoint、触发历史；受控一次性 trigger | 交易日/时区/窗口可解释；trigger 使用稳定 occurrence key；重复执行为 0 |
-| U11 | `⬜ 未开始` | P0 | BE/TL | U03,H01.1～H12 | 5 | Quant `market_summary`、`daily_review` 接入 OrganizationGovernedApp，冻结三层 DNA 身份 | Plan/Grant/Task/Run/Episode/Outcome 均含同一 DNA context；重启不重新委派 |
-| U12 | `⬜ 未开始` | P0 | APP/BE | U11 | 4 | `/dna` 查询 list/active/show/lineage/explain/executions，按 kind 过滤 | Registry 重算 digest；缺失、漂移、非 Active 引用明确拒绝；查询零副作用 |
+| U11 | `🟨 部分完成` | P0 | BE/TL | U03,H01.1～H12 | 5 | 底层 DNA registry/identity 已具备；Quant 默认三层 DNA 装配和真实执行接线待完成 | 未接线前不得宣称 Plan 到 Outcome 已持有 DNA context |
+| U12 | `🟨 部分完成` | P0 | APP/BE | U11 | 4 | `/dna` list/active/show/lineage/explain/executions 查询已提供 | 查询零副作用；执行归因读取 append-only context |
 | U13 | `⬜ 未开始` | P1 | BE/TL/QA | U12 | 5 | DNA 合法 transition：validate/shadow/canary/activate/deprecate/retire | CAS revision、父谱系、唯一 Active、确认提示、审计和并发冲突测试 |
 | U14 | `⬜ 未开始` | P1 | AI/BE | U12,H06～H12 | 5 | `/evolution` 查询 Candidate/Fitness/Dataset/Replay/Compare/Campaign/Explain | 风险硬拒绝不被均值覆盖；Dataset 版本固定；Replay 无生产副作用 |
 | U15 | `⬜ 未开始` | P1 | TL/QA | U13,U14 | 4 | promote/rollback 控制面与 kill switch；禁止自动 Active | Promotion Gate 全证据；rollback 可恢复；真实交易权限永不由演化扩展 |

@@ -223,8 +223,8 @@ P01～P08 已证明独立装配、通用闭环、兼容升级、跨领域运维�
 | U08 | `✅ 已开发已测试` | P0 | APP/BE | U01,A07,C01,D01 | 3 | Runtime 幂等持久化校验后 Catalog；`/catalog`、`/skills`、`/workflows` 查询真实版本/digest/status |
 | U09 | `⬜ 未开始` | P1 | BE/TL | U08,D04,C01 | 4 | Skill/Workflow 治理状态变更 |
 | U10 | `⬜ 未开始` | P1 | APP/BE | U03,B06,Q04 | 3 | `/schedules` 查询和受控 trigger |
-| U11 | `⬜ 未开始` | P0 | BE/TL | U03,H01.1～H12 | 5 | Quant 接入 OrganizationGovernedApp 和三层 DNA 身份 |
-| U12 | `⬜ 未开始` | P0 | APP/BE | U11 | 4 | `/dna` 查询、谱系、解释和执行归因 |
+| U11 | `🟨 部分完成` | P0 | BE/TL | U03,H01.1～H12 | 5 | DNA registry/identity 底层已具备；Quant 默认三层 DNA 注册、激活和真实执行接线待完成 |
+| U12 | `🟨 部分完成` | P0 | APP/BE | U11 | 4 | `/dna` list/active/show/lineage/explain/executions 查询已提供；当前执行归因为空时如实返回 |
 | U13 | `⬜ 未开始` | P1 | BE/TL/QA | U12 | 5 | DNA 合法 transition 控制面 |
 | U14 | `⬜ 未开始` | P1 | AI/BE | U12,H06～H12 | 5 | `/evolution` 查询、Replay、Compare 和 Explain |
 | U15 | `⬜ 未开始` | P1 | TL/QA | U13,U14 | 4 | promote/rollback 与 kill switch |

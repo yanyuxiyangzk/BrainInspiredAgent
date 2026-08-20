@@ -118,6 +118,53 @@ class CommandSurfaceQuery:
             f"SELECT * FROM insight_subscription {where} ORDER BY created_at DESC LIMIT ?", params,
         )}
 
+    async def dna(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:
+        if view in {"list", "active"}:
+            rows: list[dict[str, object]] = []
+            for table, kind in (
+                ("organization_dna_definition", "organization"),
+                ("agent_dna_definition", "agent"),
+                ("dna_definition", "workflow"),
+            ):
+                active = " WHERE status='ACTIVE'" if view == "active" else ""
+                rows.extend(await self._rows(
+                    f"SELECT dna_id,version,status,content_digest,revision,created_at "
+                    f"FROM {table}{active} ORDER BY created_at DESC LIMIT ?", (limit,),
+                ))
+                for row in rows[-limit:]:
+                    row["kind"] = kind
+            return {"dna": rows[:limit], "view": view}
+        if view == "executions":
+            rows = await self._rows(
+                "SELECT context_digest,correlation_id,plan_id,task_id,run_id,episode_id,"
+                "evaluation_id,organization_dna_id,organization_version,organization_role,"
+                "agent_dna_id,agent_version,workflow_dna_id,workflow_version "
+                "FROM dna_execution_context ORDER BY rowid DESC LIMIT ?", (limit,),
+            )
+            return {"executions": rows}
+        if view == "show":
+            for table in ("organization_dna_definition", "agent_dna_definition", "dna_definition"):
+                rows = await self._rows(
+                    f"SELECT * FROM {table} WHERE dna_id=? ORDER BY version DESC LIMIT ?",
+                    (identifier, limit),
+                )
+                if rows:
+                    return {"dna": rows}
+            return {"dna": []}
+        if view == "lineage":
+            parents = await self._rows(
+                "SELECT parent_dna_id,parent_version,parent_content_digest FROM dna_parent "
+                "WHERE child_dna_id=? ORDER BY ordinal", (identifier,),
+            )
+            return {"dna": parents, "parents": parents}
+        if view == "explain":
+            explanations = await self._rows(
+                "SELECT * FROM dna_explanation WHERE dna_id=? ORDER BY explained_at DESC LIMIT ?",
+                (identifier, limit),
+            )
+            return {"dna": explanations, "explanations": explanations}
+        return {"dna": [], "view": view}
+
     async def _count(self, table: str, where: str | None = None) -> int:
         row = await self._database.fetch_one(
             f"SELECT count(*) AS total FROM {table}" + (f" WHERE {where}" if where else "")

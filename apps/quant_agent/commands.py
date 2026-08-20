@@ -23,6 +23,7 @@ COMMAND_SPECS = (
     CommandSpec("/catalog", "list capabilities, skills and workflows", "/catalog [capabilities|skills|workflows]"),
     CommandSpec("/skills", "inspect registered skills", "/skills [list|show|health|bindings]"),
     CommandSpec("/workflows", "inspect registered workflows and runs", "/workflows [list|active|show|runs]"),
+    CommandSpec("/dna", "inspect DNA definitions and execution identity", "/dna [list|active|show|lineage|explain|executions]"),
     CommandSpec("/market", "submit a governed market summary", "/market SYMBOLS [--title TEXT]"),
     CommandSpec("/commands", "list or inspect command receipts", "/commands [MESSAGE_ID]", ("commands",)),
     CommandSpec("/insights", "query and explain market insights", "/insights [latest|show|explain]", ("insights", "latest")),

@@ -85,6 +85,7 @@ def parser() -> argparse.ArgumentParser:
         "catalog": ("capabilities", "skills", "workflows"),
         "skills": ("list", "show", "health", "bindings"),
         "workflows": ("list", "active", "show", "runs"),
+        "dna": ("list", "active", "show", "lineage", "explain", "executions"),
     }.items():
         query = commands.add_parser(name, help=f"query {name}")
         query.add_argument("view", choices=choices, nargs="?", default=choices[0])
@@ -199,7 +200,7 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
     if args.command == "start":
         return {"status": "READY", "database": str(Path(args.database).resolve())}
     if args.command in {"system", "brain", "events", "plans", "tasks", "catalog",
-                        "skills", "workflows"}:
+                        "skills", "workflows", "dna"}:
         if args.command == "tasks" and args.view in {"cancel", "retry"}:
             if not args.identifier:
                 raise ValueError("task identifier is required")
@@ -254,6 +255,8 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
             return await surface_query.catalog("skills", args.limit, args.identifier)
         if args.command == "workflows":
             return await surface_query.catalog("workflows", args.limit, args.identifier)
+        if args.command == "dna":
+            return await surface_query.dna(args.view, args.limit, args.identifier)
         return await surface_query.catalog(args.view, args.limit, args.identifier)
     if args.command == "stop":
         return {"status": "STOP_REQUEST_ACCEPTED", "note": "no background daemon is managed"}
