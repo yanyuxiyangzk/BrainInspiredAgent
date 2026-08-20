@@ -15,10 +15,19 @@ class CommandSpec:
 
 
 COMMAND_SPECS = (
+    CommandSpec("/system", "inspect operational system facts", "/system [status|health|diagnose|metrics|logs|migrations]"),
+    CommandSpec("/brain", "show derived cognitive state", "/brain [state|areas|cycles]"),
+    CommandSpec("/events", "inspect event delivery facts", "/events [recent|show|correlation|inbox|dead-letter]"),
+    CommandSpec("/plans", "inspect plans and decisions", "/plans [recent|show|rejected]"),
+    CommandSpec("/tasks", "inspect or control durable tasks", "/tasks [list|running|failed|show|trace|cancel|retry]"),
+    CommandSpec("/catalog", "list capabilities, skills and workflows", "/catalog [capabilities|skills|workflows]"),
+    CommandSpec("/skills", "inspect registered skills", "/skills [list|show|health|bindings]"),
+    CommandSpec("/workflows", "inspect registered workflows and runs", "/workflows [list|active|show|runs]"),
     CommandSpec("/market", "submit a governed market summary", "/market SYMBOLS [--title TEXT]"),
     CommandSpec("/commands", "list or inspect command receipts", "/commands [MESSAGE_ID]", ("commands",)),
     CommandSpec("/insights", "query and explain market insights", "/insights [latest|show|explain]", ("insights", "latest")),
     CommandSpec("/subscribe", "add a local subscription", "/subscribe [USER]"),
+    CommandSpec("/subscriptions", "inspect subscription preferences", "/subscriptions [list|enable|disable]"),
     CommandSpec("/deliveries", "list local deliveries", "/deliveries [USER]"),
     CommandSpec("/health", "check database liveness and readiness", "/health", ("health",)),
     CommandSpec("/status", "show durable platform status", "/status", ("status",)),

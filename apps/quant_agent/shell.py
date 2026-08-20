@@ -231,6 +231,11 @@ def slash_arguments(raw: str) -> tuple[str, ...] | None:
         return ("replay", *rest)
     if command == "loop":
         return ("loop", *(rest or ("status",)))
+    if command in {"system", "brain", "events", "plans", "tasks", "catalog", "skills",
+                   "workflows"}:
+        return (command, *(rest or ()))
+    if command == "subscriptions":
+        return (command, *(rest or ("list",)))
     if command in {"commands", "insights", "health", "status", "diagnose", "metrics", "log"}:
         return (command, *rest)
     return None

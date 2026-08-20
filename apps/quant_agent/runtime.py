@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -66,7 +67,11 @@ from active_agent_platform.workflow_runtime import WorkflowRuntime
 from apps.quant_agent.daily_review import DAILY_REVIEW_WORKFLOW
 from apps.quant_agent.daily_review_app import DailyReviewApp
 from apps.quant_agent.delivery import InsightDeliveryService
-from apps.quant_agent.fake_skills import install_fake_skills
+from apps.quant_agent.fake_skills import (
+    fake_capability_contracts,
+    fake_skill_manifests,
+    install_fake_skills,
+)
 from apps.quant_agent.market_summary import MARKET_SUMMARY_WORKFLOW
 from apps.quant_agent.market_summary_app import MarketSummaryApp
 from brain_kernel.ports import Clock, UuidGenerator
@@ -133,7 +138,7 @@ class _CommandPublisher:
         command = _CommandMessage(message)
 
         async def accept(transaction: SQLiteTransaction, item: _CommandMessage) -> None:
-            if item.command != "market.summary":
+            if item.command not in {"market.summary", "task.cancel", "task.retry"}:
                 raise ValueError("unsupported quant command")
             now = _stamp(datetime.now(UTC))
             await transaction.execute(
@@ -198,6 +203,7 @@ class QuantRuntimeService:
         self._accepting = True
         await self._scheduler.start()
         await self._relay.start()
+        await _persist_catalog(self._database, self._clock.now())
         async with self._database.transaction() as transaction:
             await transaction.execute(
                 "UPDATE command_execution SET status='ACCEPTED', started_at=NULL "
@@ -258,6 +264,9 @@ class QuantRuntimeService:
 
     async def _execute(self, row: Mapping[str, Any]) -> Mapping[str, object]:
         args = json.loads(str(row["args_json"]))
+        command = str(row["command"])
+        if command in {"task.cancel", "task.retry"}:
+            return await self._execute_task_control(command, args, str(row["correlation_id"]))
         now = self._clock.now().astimezone(UTC)
         trade_date = args.get("trade_date") or now.date().isoformat()
         symbols = args.get("symbols") or ["INDEX.TEST"]
@@ -311,6 +320,20 @@ class QuantRuntimeService:
             "status": executed.execution.status.value,
             "notification_id": insight_id or None,
         }
+
+    async def _execute_task_control(
+        self, command: str, args: Mapping[str, object], correlation_id: str,
+    ) -> Mapping[str, object]:
+        task_id = str(args.get("task_id", ""))
+        row = await self._database.fetch_one("SELECT * FROM task WHERE task_id=?", (task_id,))
+        if row is None:
+            raise ValueError("task does not exist")
+        status = str(row["status"])
+        action = command.removeprefix("task.")
+        raise ValueError(
+            f"{action} rejected for task in {status}: a live MotorExec control handle and "
+            "new governed grant are required"
+        )
 
     async def _finish(
         self, command_id: str, status: str,
@@ -448,3 +471,44 @@ def build_quant_runtime(
 class _RuntimeLogger:
     def info(self, message: str, **fields: object) -> None:
         del message, fields
+
+
+async def _persist_catalog(database: SQLiteDatabase, now: datetime) -> None:
+    stamp = _stamp(now)
+    workflows = (MARKET_SUMMARY_WORKFLOW, DAILY_REVIEW_WORKFLOW)
+    async with database.transaction() as transaction:
+        for contract in fake_capability_contracts():
+            value = {
+                "capability": contract.capability, "version": contract.version,
+                "input_schema": dict(contract.input_schema),
+                "output_schema": dict(contract.output_schema),
+                "side_effect": contract.side_effect.value,
+            }
+            encoded, digest = _catalog_value(value)
+            await transaction.execute(
+                "INSERT OR IGNORE INTO capability_contract VALUES (?,?,?,?,?,?,?)",
+                (contract.capability, contract.version, digest, "ACTIVE", encoded, stamp,
+                 "catalog.bootstrap"),
+            )
+        for manifest in fake_skill_manifests():
+            encoded = json.dumps(manifest, sort_keys=True, separators=(",", ":"))
+            await transaction.execute(
+                "INSERT OR IGNORE INTO skill_manifest VALUES (?,?,?,?,?,?,?)",
+                (str(manifest["skill_id"]), str(manifest["version"]), str(manifest["digest"]), "ENABLED",
+                 encoded, stamp, "catalog.bootstrap"),
+            )
+        for workflow in workflows:
+            encoded, digest = _catalog_value(workflow)
+            await transaction.execute(
+                "INSERT OR IGNORE INTO workflow_definition VALUES (?,?,?,?,?,?,?)",
+                (str(workflow["workflow_id"]), str(workflow["version"]), digest, "ACTIVE", encoded,
+                 stamp, "catalog.bootstrap"),
+            )
+
+
+def _catalog_value(value: Mapping[str, object]) -> tuple[str, str]:
+    encoded = json.dumps(
+        dict(value), sort_keys=True, separators=(",", ":"),
+        default=lambda item: dict(item) if isinstance(item, Mapping) else str(item),
+    )
+    return encoded, "sha256:" + hashlib.sha256(encoded.encode()).hexdigest()

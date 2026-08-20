@@ -76,6 +76,33 @@ def parser() -> argparse.ArgumentParser:
                          default="FIRE_ONCE")
     runtime.add_argument("--daily-review-all-days", action="store_true")
     commands.add_parser("status", help="show durable platform status")
+    for name, choices in {
+        "system": ("status", "health", "diagnose", "metrics", "logs", "migrations"),
+        "brain": ("state", "areas", "cycles"),
+        "events": ("recent", "show", "correlation", "inbox", "outbox", "dead-letter"),
+        "plans": ("recent", "show", "rejected"),
+        "tasks": ("list", "running", "failed", "show", "trace", "cancel", "retry"),
+        "catalog": ("capabilities", "skills", "workflows"),
+        "skills": ("list", "show", "health", "bindings"),
+        "workflows": ("list", "active", "show", "runs"),
+    }.items():
+        query = commands.add_parser(name, help=f"query {name}")
+        query.add_argument("view", choices=choices, nargs="?", default=choices[0])
+        query.add_argument("identifier", nargs="?")
+        query.add_argument("--limit", type=int, default=20)
+    subscriptions_query = commands.add_parser("subscriptions", help="notification preferences")
+    subscription_commands = subscriptions_query.add_subparsers(dest="subscription_command", required=True)
+    subscribe = subscription_commands.add_parser("add")
+    subscribe.add_argument("subscription_id")
+    subscribe.add_argument("--topic", default="market_summary")
+    subscribe.add_argument("--minimum-level", default="INFO", choices=("INFO", "WARNING", "ERROR"))
+    subscribe.add_argument("--channel", default="local")
+    subscribe.add_argument("--hourly-limit", type=int, default=10)
+    subscribe.add_argument("--quiet-start-hour", type=int)
+    subscribe.add_argument("--quiet-end-hour", type=int)
+    subscription_commands.add_parser("list").add_argument("subscription_id", nargs="?")
+    for action in ("enable", "disable"):
+        subscription_commands.add_parser(action).add_argument("subscription_id")
     loop_status = commands.add_parser("loop", help="inspect LoopEngine state")
     loop_status.add_argument("loop_command", choices=("status", "services", "lag", "checkpoints"),
                              nargs="?", default="status")
@@ -95,22 +122,12 @@ def parser() -> argparse.ArgumentParser:
     summary.add_argument("--symbols", default="INDEX.TEST")
     summary.add_argument("--trade-date")
     summary.add_argument("--title", default="Market summary")
-    subscriptions = commands.add_parser("subscriptions", help="notification preferences")
-    subscription_commands = subscriptions.add_subparsers(dest="subscription_command", required=True)
-    subscribe = subscription_commands.add_parser("add")
-    subscribe.add_argument("subscription_id")
-    subscribe.add_argument("--topic", default="market_summary")
-    subscribe.add_argument("--minimum-level", default="INFO", choices=("INFO", "WARNING", "ERROR"))
-    subscribe.add_argument("--channel", default="local")
-    subscribe.add_argument("--hourly-limit", type=int, default=10)
     read = subscription_commands.add_parser("read")
     read.add_argument("delivery_id")
     delivery = subscription_commands.add_parser("deliver")
     delivery.add_argument("subscription_id")
     delivery.add_argument("insight_id")
     delivery.add_argument("--level", default="INFO", choices=("INFO", "WARNING", "ERROR"))
-    listing = subscription_commands.add_parser("list")
-    listing.add_argument("subscription_id")
     replay = commands.add_parser("replay", help="show a correlation trace")
     replay.add_argument("correlation_id")
     logs = commands.add_parser("log", help="show recent audit records")
@@ -122,6 +139,8 @@ def parser() -> argparse.ArgumentParser:
     insight_commands = insights.add_subparsers(dest="insight_command", required=True)
     latest = insight_commands.add_parser("latest")
     latest.add_argument("--limit", type=int, default=10)
+    latest.add_argument("--cursor")
+    latest.add_argument("--stale", choices=("include", "exclude", "only"), default="include")
     show = insight_commands.add_parser("show")
     show.add_argument("insight_id")
     explain = insight_commands.add_parser("explain")
@@ -179,6 +198,63 @@ async def run(
 async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> object:
     if args.command == "start":
         return {"status": "READY", "database": str(Path(args.database).resolve())}
+    if args.command in {"system", "brain", "events", "plans", "tasks", "catalog",
+                        "skills", "workflows"}:
+        if args.command == "tasks" and args.view in {"cancel", "retry"}:
+            if not args.identifier:
+                raise ValueError("task identifier is required")
+            command = f"task.{args.view}"
+            adapter = CommandAdapter(
+                "bia.cli", SystemClock(), Uuid7Generator(SystemClock()),
+                SQLiteEventSink(database, SystemClock()), allowed_commands={command: False},
+            )
+            result = await adapter.inject(
+                command, {"task_id": args.identifier},
+                idempotency_key=f"{command}:{args.identifier}",
+            )
+            return {"status": result.outcome, "message_id": result.msg_id,
+                    "command": command, "governed": True}
+        from apps.quant_agent.query_surface import CommandSurfaceQuery
+        surface_query = CommandSurfaceQuery(database)
+        if not 1 <= args.limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        if args.command == "system":
+            if args.view == "health":
+                return (await HealthService(database, SystemClock()).check()).to_dict()
+            if args.view == "diagnose":
+                return (await HealthService(database, SystemClock()).diagnose(
+                    recent_limit=args.limit
+                )).to_dict()
+            if args.view == "metrics":
+                return (await PlatformMetrics(database, SystemClock()).snapshot()).to_dict()
+            if args.view == "logs":
+                rows = await database.fetch_all(
+                    "SELECT * FROM audit_record ORDER BY occurred_at DESC LIMIT ?", (args.limit,)
+                )
+                return {"audits": [dict(row) for row in rows]}
+            if args.view == "migrations":
+                rows = await database.fetch_all(
+                    "SELECT version,checksum FROM schema_migration ORDER BY version"
+                )
+                return {"migrations": [dict(row) for row in rows]}
+            counts = {}
+            for table in ("task", "workflow_run", "episode", "outbox_event"):
+                row = await database.fetch_one(f"SELECT count(*) AS total FROM {table}")
+                counts[table] = 0 if row is None else int(row["total"])
+            return {"status": "READY", "facts": counts}
+        if args.command == "brain":
+            return await surface_query.brain(args.view, args.limit)
+        if args.command == "events":
+            return await surface_query.events(args.view, args.limit, args.identifier)
+        if args.command == "plans":
+            return await surface_query.plans(args.view, args.limit, args.identifier)
+        if args.command == "tasks":
+            return await surface_query.tasks(args.view, args.limit, args.identifier)
+        if args.command == "skills":
+            return await surface_query.catalog("skills", args.limit, args.identifier)
+        if args.command == "workflows":
+            return await surface_query.catalog("workflows", args.limit, args.identifier)
+        return await surface_query.catalog(args.view, args.limit, args.identifier)
     if args.command == "stop":
         return {"status": "STOP_REQUEST_ACCEPTED", "note": "no background daemon is managed"}
     if args.command == "inject" or args.command == "market":
@@ -208,15 +284,26 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
         if args.subscription_command == "add":
             await service.subscribe(args.subscription_id, topic=args.topic,
                                     minimum_level=args.minimum_level, channel=args.channel,
-                                    hourly_limit=args.hourly_limit)
+                                    hourly_limit=args.hourly_limit,
+                                    quiet_start_hour=args.quiet_start_hour,
+                                    quiet_end_hour=args.quiet_end_hour)
             return {"status": "SUBSCRIBED", "subscription_id": args.subscription_id}
+        if args.subscription_command in {"enable", "disable"}:
+            changed = await service.set_enabled(
+                args.subscription_id, enabled=args.subscription_command == "enable"
+            )
+            return {"status": "ENABLED" if args.subscription_command == "enable" else "DISABLED",
+                    "subscription_id": args.subscription_id, "changed": changed}
         if args.subscription_command == "deliver":
             delivered = await service.deliver(
                 args.subscription_id, args.insight_id, level=args.level
             )
             return {"status": delivered.status, "delivery_id": delivered.delivery_id}
         if args.subscription_command == "list":
-            return {"deliveries": list(await service.deliveries(args.subscription_id))}
+            if args.subscription_id:
+                return {"deliveries": list(await service.deliveries(args.subscription_id))}
+            from apps.quant_agent.query_surface import CommandSurfaceQuery
+            return await CommandSurfaceQuery(database).subscriptions(None, 100)
         return {"status": "READ" if await service.mark_read(args.delivery_id) else "NOT_FOUND",
                 "delivery_id": args.delivery_id}
     if args.command == "metrics":
@@ -270,7 +357,9 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
         return {"commands": [_command_row(row) for row in rows]}
     query = MarketInsightQuery(database)
     if args.insight_command == "latest":
-        return {"insights": [item.to_dict() for item in await query.latest(limit=args.limit)]}
+        values = await query.latest(limit=args.limit, cursor=args.cursor, stale=args.stale)
+        return {"insights": [item.to_dict() for item in values],
+                "next_cursor": values[-1].insight_id if len(values) == args.limit else None}
     if args.insight_command == "show":
         return (await query.show(args.insight_id)).to_dict()
     explanation = await query.explain(args.insight_id)
@@ -409,7 +498,8 @@ def main() -> int:
     import sys
     arguments = list(sys.argv[1:])
     commands = {
-        "shell", "start", "run", "status", "loop", "health", "diagnose", "metrics", "stop",
+        "shell", "start", "run", "status", "system", "brain", "loop", "events", "plans",
+        "tasks", "catalog", "skills", "workflows", "health", "diagnose", "metrics", "stop",
         "inject", "market", "subscriptions", "replay", "log", "commands", "insights",
     }
     if not any(value in commands for value in arguments):

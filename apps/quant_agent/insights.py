@@ -50,15 +50,23 @@ class MarketInsightQuery:
     def __init__(self, database: SQLiteDatabase) -> None:
         self._database = database
 
-    async def latest(self, *, limit: int = 10, now: datetime | None = None) -> tuple[MarketInsight, ...]:
+    async def latest(
+        self, *, limit: int = 10, now: datetime | None = None,
+        cursor: str | None = None, stale: str = "include",
+    ) -> tuple[MarketInsight, ...]:
         if not 1 <= limit <= 100:
             raise ValueError("limit must be between 1 and 100")
+        if stale not in {"include", "exclude", "only"}:
+            raise ValueError("stale must be include, exclude or only")
         rows = await self._database.fetch_all(
             """SELECT notification_id FROM local_notification_delivery
-               ORDER BY delivered_at DESC, notification_id DESC LIMIT ?""", (limit,)
+               WHERE (? IS NULL OR notification_id < ?)
+               ORDER BY delivered_at DESC, notification_id DESC LIMIT ?""", (cursor, cursor, limit + 1)
         )
         instant = (now or datetime.now(UTC)).astimezone(UTC)
-        return tuple([await self._load(str(row["notification_id"]), instant) for row in rows])
+        values = tuple([await self._load(str(row["notification_id"]), instant) for row in rows])
+        filtered = tuple(item for item in values if stale == "include" or item.stale == (stale == "only"))
+        return filtered[:limit]
 
     async def show(self, insight_id: str, *, now: datetime | None = None) -> MarketInsight:
         if not insight_id:

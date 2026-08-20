@@ -214,13 +214,13 @@ P01～P08 已证明独立装配、通用闭环、兼容升级、跨领域运维�
 | ID | 状态 | 优先级 | 负责人 | 依赖 | 估算 | 目标 |
 |---|---|---:|---|---|---:|---|
 | U01 | `✅ 已开发已测试` | P0 | APP/BE | Q08 | 2 | 统一 `CommandSpec`、分层帮助、实时补全、别名和 Shell/CLI 路由；TTY/非 TTY 契约测试通过 |
-| U02 | `⬜ 未开始` | P0 | BE/OPS | U01,I02,I03 | 3 | `/system`、`/brain` 查询入口 |
+| U02 | `✅ 已开发已测试` | P0 | BE/OPS | U01,I02,I03 | 3 | `/system`、`/brain` 有界只读入口；Brain 明确标注 derived，系统健康/迁移/指标来自权威事实 |
 | U03 | `✅ 已开发已测试` | P0 | BE/TL | U01,A03,Q07 | 4 | Quant CLI/Shell 均由唯一 LoopEngine/Supervisor 托管；`/loop status/services/lag/checkpoints` 读取真实快照和权威事实 |
-| U04 | `⬜ 未开始` | P0 | BE/OPS | U01,B01～B03,G01 | 3 | `/events`、Inbox/Outbox/死信查询 |
-| U05 | `⬜ 未开始` | P0 | APP/BE | U01,F01～F06,G01 | 4 | `/plans`、`/tasks` 查询与受控 cancel/retry |
+| U04 | `✅ 已开发已测试` | P0 | BE/OPS | U01,B01～B03,G01 | 3 | `/events` recent/show/correlation/inbox/outbox/dead-letter 有界脱敏查询 |
+| U05 | `🟨 部分完成` | P0 | APP/BE | U01,F01～F06,G01 | 4 | `/plans`、`/tasks` 查询完成；cancel/retry 已经治理入口接收但安全拒绝，待 MotorExec 活句柄与新 Grant 语义完成 |
 | U06 | `⬜ 未开始` | P1 | AI/BE | U02,E02～E05 | 3 | `/attention`、`/goals` 查询解释 |
 | U07 | `⬜ 未开始` | P1 | BE/AI | U01,E06,G01,G04,G05 | 4 | `/memory` 查询、检索与受控巩固 |
-| U08 | `⬜ 未开始` | P0 | APP/BE | U01,A07,C01,D01 | 3 | `/catalog`、`/skills`、`/workflows` 查询 |
+| U08 | `✅ 已开发已测试` | P0 | APP/BE | U01,A07,C01,D01 | 3 | Runtime 幂等持久化校验后 Catalog；`/catalog`、`/skills`、`/workflows` 查询真实版本/digest/status |
 | U09 | `⬜ 未开始` | P1 | BE/TL | U08,D04,C01 | 4 | Skill/Workflow 治理状态变更 |
 | U10 | `⬜ 未开始` | P1 | APP/BE | U03,B06,Q04 | 3 | `/schedules` 查询和受控 trigger |
 | U11 | `⬜ 未开始` | P0 | BE/TL | U03,H01.1～H12 | 5 | Quant 接入 OrganizationGovernedApp 和三层 DNA 身份 |
@@ -228,7 +228,7 @@ P01～P08 已证明独立装配、通用闭环、兼容升级、跨领域运维�
 | U13 | `⬜ 未开始` | P1 | BE/TL/QA | U12 | 5 | DNA 合法 transition 控制面 |
 | U14 | `⬜ 未开始` | P1 | AI/BE | U12,H06～H12 | 5 | `/evolution` 查询、Replay、Compare 和 Explain |
 | U15 | `⬜ 未开始` | P1 | TL/QA | U13,U14 | 4 | promote/rollback 与 kill switch |
-| U16 | `⬜ 未开始` | P0 | APP/BE | I04,I05,U01 | 4 | Insight 完整过滤/分页/字段与 Subscription 偏好 |
+| U16 | `🟨 部分完成` | P0 | APP/BE | I04,I05,U01 | 4 | Insight cursor/stale 分页和 Subscription quiet hours/list/enable/disable 已完成；symbol/time/type 过滤待补 |
 | U17 | `⬜ 未开始` | P0 | QA/OPS | U02～U16 | 5 | 权限矩阵、故障注入、黑盒验收和发布报告 |
 
 关键路径：`U01 → U03 → U02 → U11 → U12 → U13 → U17`。U11、U17 仍为发布阻断任务。

@@ -95,6 +95,14 @@ class InsightDeliveryService:
         )
         return tuple(dict(row) for row in rows)
 
+    async def set_enabled(self, subscription_id: str, *, enabled: bool) -> bool:
+        async with self._database.transaction() as tx:
+            cursor = await tx.execute(
+                "UPDATE insight_subscription SET enabled=? WHERE subscription_id=?",
+                (int(enabled), subscription_id),
+            )
+        return cursor.rowcount == 1
+
 
 def _rank(level: str) -> int:
     try:

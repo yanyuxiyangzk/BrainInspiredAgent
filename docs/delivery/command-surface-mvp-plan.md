@@ -50,13 +50,13 @@ MVP 只开放 `market_summary`、`daily_review` 和已有 Fake Skills。`auction
 | ID | 状态 | 优先级 | 负责人 | 依赖 | 估算 | 交付物与完成标准 | 验收 |
 |---|---|---:|---|---|---:|---|---|
 | U01 | `✅ 已开发已测试` | P0 | APP/BE | Q08 | 2 | `CommandSpec` 命令描述模型、分层帮助、实时补全、别名；CLI/Shell 共用规范路由 | `/help COMMAND`、补全、未知命令、TTY/非 TTY 契约测试通过 |
-| U02 | `⬜ 未开始` | P0 | BE/OPS | U01,I02,I03 | 3 | `/system` 与 `/brain` 查询：health、diagnose、metrics、logs、migrations、BrainState、脑区健康、最近 Cycle | 查询零副作用；SAFE/DEGRADED/UNKNOWN 明确；JSON 字段稳定 |
+| U02 | `✅ 已开发已测试` | P0 | BE/OPS | U01,I02,I03 | 3 | `/system` 与 `/brain` 查询；BrainState 未持久化部分明确标注 derived | 查询零副作用；健康、迁移、脑区负载和最近 Cycle 契约测试通过 |
 | U03 | `✅ 已开发已测试` | P0 | BE/TL | U01,A03,Q07 | 4 | Quant 常驻服务由唯一 LoopEngine/Supervisor 托管；`/loop status/services/lag/checkpoints` | CLI/Shell 无手工服务生命周期；排空/恢复回归；运行态来自 Supervisor，进程外明确 UNKNOWN |
-| U04 | `⬜ 未开始` | P0 | BE/OPS | U01,B01～B03,G01 | 3 | `/events` 查询 Outbox/Inbox/死信/事件详情/correlation；分页与脱敏 | 事件顺序、msg/dedup/correlation 保真；不泄露 payload 敏感字段 |
-| U05 | `⬜ 未开始` | P0 | APP/BE | U01,F01～F06,G01 | 4 | `/plans`、`/tasks` 查询；Task show/trace；受控 cancel/retry | cancel/retry 经持久命令、原 ID/Binding/幂等键；终态不可重开；NON_REPLAYABLE 不可重试 |
+| U04 | `✅ 已开发已测试` | P0 | BE/OPS | U01,B01～B03,G01 | 3 | `/events` 查询 Outbox/Inbox/死信/详情/correlation；有界输出不回显 envelope payload | 顺序、ID、状态和 correlation 保真 |
+| U05 | `🟨 部分完成` | P0 | APP/BE | U01,F01～F06,G01 | 4 | `/plans`、`/tasks` 查询完成；cancel/retry 进入持久治理命令后安全拒绝 | 待 MotorExec 活句柄、新 Grant、Binding/幂等复用实现后开放执行 |
 | U06 | `⬜ 未开始` | P1 | AI/BE | U02,E02～E05 | 3 | `/attention`、`/goals` 查询与解释；显著性规则、证据、冷却、Goal 条件/预算/冲突域 | 同一事实解释确定；查询不创建认知周期；动态 Goal 修改不在 MVP |
 | U07 | `⬜ 未开始` | P1 | BE/AI | U01,E06,G01,G04,G05 | 4 | `/memory` 查询 Working/Episode/Semantic/Candidate；search；受控 consolidate | Working 标注非权威；Candidate 不直接晋级；证据、置信度、范围、有效期完整 |
-| U08 | `⬜ 未开始` | P0 | APP/BE | U01,A07,C01,D01 | 3 | `/catalog`、`/skills`、`/workflows` 查询；Schema/digest/status/健康/Binding/Run | 目录来源唯一；Active 与注册版本区分；不暴露 Adapter 私有实现 |
+| U08 | `✅ 已开发已测试` | P0 | APP/BE | U01,A07,C01,D01 | 3 | Runtime 幂等持久化校验目录；`/catalog`、`/skills`、`/workflows` 查询 | 真实 Schema/digest/status，未暴露 Adapter 实现 |
 | U09 | `⬜ 未开始` | P1 | BE/TL | U08,D04,C01 | 4 | Skill enable/disable、Workflow validate/activate/deprecate 治理命令 | 显式版本/revision；兼容性、引用和活动 Run 检查；全部写 transition/audit |
 | U10 | `⬜ 未开始` | P1 | APP/BE | U03,B06,Q04 | 3 | `/schedules` 查询配置、checkpoint、触发历史；受控一次性 trigger | 交易日/时区/窗口可解释；trigger 使用稳定 occurrence key；重复执行为 0 |
 | U11 | `⬜ 未开始` | P0 | BE/TL | U03,H01.1～H12 | 5 | Quant `market_summary`、`daily_review` 接入 OrganizationGovernedApp，冻结三层 DNA 身份 | Plan/Grant/Task/Run/Episode/Outcome 均含同一 DNA context；重启不重新委派 |
@@ -64,7 +64,7 @@ MVP 只开放 `market_summary`、`daily_review` 和已有 Fake Skills。`auction
 | U13 | `⬜ 未开始` | P1 | BE/TL/QA | U12 | 5 | DNA 合法 transition：validate/shadow/canary/activate/deprecate/retire | CAS revision、父谱系、唯一 Active、确认提示、审计和并发冲突测试 |
 | U14 | `⬜ 未开始` | P1 | AI/BE | U12,H06～H12 | 5 | `/evolution` 查询 Candidate/Fitness/Dataset/Replay/Compare/Campaign/Explain | 风险硬拒绝不被均值覆盖；Dataset 版本固定；Replay 无生产副作用 |
 | U15 | `⬜ 未开始` | P1 | TL/QA | U13,U14 | 4 | promote/rollback 控制面与 kill switch；禁止自动 Active | Promotion Gate 全证据；rollback 可恢复；真实交易权限永不由演化扩展 |
-| U16 | `⬜ 未开始` | P0 | APP/BE | I04,I05,U01 | 4 | 完成 Insight filters/cursor/read state/版本字段；Subscription show/enable/disable/quiet hours | type/symbol/time/freshness/cursor 稳定分页；JSON/Markdown 等价；限频/静默/已读回归 |
+| U16 | `🟨 部分完成` | P0 | APP/BE | I04,I05,U01 | 4 | cursor/stale 分页；Subscription quiet hours/list/enable/disable | symbol/time/type 过滤仍待完成 |
 | U17 | `⬜ 未开始` | P0 | QA/OPS | U02～U16 | 5 | 命令权限矩阵、故障注入、黑盒 Shell/CLI、文档与发布报告 | Query 0 副作用；Command 100% 经治理；强杀恢复；全量覆盖率≥95%；Critical/High=0 |
 
 关键路径：`U01 → U03 → U02 → U11 → U12 → U13 → U17`。  
