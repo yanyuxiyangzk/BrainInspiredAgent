@@ -100,6 +100,9 @@ class QuantRuntimeComponents:
     database: SQLiteDatabase
     service: QuantRuntimeService
     engine: LoopEngine
+    dna_workflows: tuple[str, ...] = ("workflow.market_summary", "workflow.daily_review")
+    dna_agent: str = "agent.quant.default"
+    dna_organization: str = "org.quant.default"
 
 
 @dataclass(frozen=True, slots=True)
