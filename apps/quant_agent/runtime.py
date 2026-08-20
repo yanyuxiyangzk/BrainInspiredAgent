@@ -67,6 +67,7 @@ from active_agent_platform.workflow_runtime import WorkflowRuntime
 from apps.quant_agent.daily_review import DAILY_REVIEW_WORKFLOW
 from apps.quant_agent.daily_review_app import DailyReviewApp
 from apps.quant_agent.delivery import InsightDeliveryService
+from apps.quant_agent.execution_facade import QuantExecutionFacade
 from apps.quant_agent.fake_skills import (
     fake_capability_contracts,
     fake_skill_manifests,
@@ -479,11 +480,13 @@ def build_quant_runtime(
         "publish deterministic market summary", "market_summary",
         ("attention.salient_event",), use_model=False,
     ),))
+    motor = MotorExec(database, runtime, clock=clock, identifiers=identifiers)
+    facade = QuantExecutionFacade(motor, OutcomeEvaluator(database, clock, identifiers, OutcomePolicy("1.0")), database=database)
     app = MarketSummaryApp(
         database, placeholder, PlanValidator(registry), RiskGate(policy),
-        MotorExec(database, runtime, clock=clock, identifiers=identifiers),
+        motor,
         OutcomeEvaluator(database, clock, identifiers, OutcomePolicy("1.0")),
-        clock, identifiers,
+        clock, identifiers, facade,
     )
     daily_app = DailyReviewApp(
         database, RestRepair(database, clock, identifiers), PlanValidator(registry),
@@ -491,8 +494,8 @@ def build_quant_runtime(
             "daily-review/1", frozenset({"content.summary.generate"}), frozenset(),
             RiskBudget(1000, 100, 600), RiskBudget(1000, 100, 600),
         )),
-        MotorExec(database, runtime, clock=clock, identifiers=identifiers),
-        clock, identifiers,
+        motor,
+        clock, identifiers, facade,
     )
     service = QuantRuntimeService(
             database, app, bindings, clock, identifiers, daily_app, daily_bindings,
