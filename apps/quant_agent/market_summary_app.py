@@ -22,6 +22,7 @@ from active_agent_platform.skills import SkillBinding
 from active_agent_platform.state import BrainState
 from active_agent_platform.storage import SQLiteDatabase
 from active_agent_platform.workflow_runtime import WorkflowExecutionResult
+from apps.quant_agent.execution_facade import QuantExecutionFacade
 from brain_kernel.ports import Clock, UuidGenerator
 
 
@@ -47,6 +48,7 @@ class MarketSummaryApp:
         evaluator: OutcomeEvaluator,
         clock: Clock,
         identifiers: UuidGenerator,
+        execution_facade: QuantExecutionFacade | None = None,
     ) -> None:
         self._database = database
         self._planner = planner
@@ -56,6 +58,7 @@ class MarketSummaryApp:
         self._evaluator = evaluator
         self._clock = clock
         self._identifiers = identifiers
+        self._facade = execution_facade or QuantExecutionFacade(motor, evaluator)
 
     async def execute(
         self,
@@ -113,11 +116,11 @@ class MarketSummaryApp:
             await repository.add_plan(planned.plan)
             await repository.add_decision(decision)
             await GrantIssuer(transaction).issue(grant)
-        execution = await self._motor.execute(MotorExecutionRequest(
+        execution = await self._facade.execute(MotorExecutionRequest(
             grant_id, task.task_id, task.workflow, task.parameters, bindings,
             task.deadline, approval.allowed_permissions, priority=task.priority,
         ))
-        evaluation = await self._evaluator.evaluate_and_record(OutcomeRequest(
+        evaluation = await self._facade.evaluate(OutcomeRequest(
             task.task_id, correlation_id, TaskStatus(execution.status.value),
             str(planned.plan.document["goal"]["goal_id"]),  # type: ignore[index]
             execution.status.value == "SUCCEEDED", {"delivery": 1.0}, None, 0.0, (),

@@ -20,6 +20,7 @@ from active_agent_platform.skills import SkillBinding
 from active_agent_platform.state import BrainState
 from active_agent_platform.storage import SQLiteDatabase
 from active_agent_platform.workflow_runtime import WorkflowExecutionResult
+from apps.quant_agent.execution_facade import QuantExecutionFacade
 from brain_kernel.ports import Clock, UuidGenerator
 
 
@@ -40,6 +41,7 @@ class DailyReviewApp:
         motor: MotorExec,
         clock: Clock,
         identifiers: UuidGenerator,
+        execution_facade: QuantExecutionFacade | None = None,
     ) -> None:
         self._database = database
         self._repair = repair
@@ -48,6 +50,7 @@ class DailyReviewApp:
         self._motor = motor
         self._clock = clock
         self._identifiers = identifiers
+        self._facade = execution_facade or QuantExecutionFacade(motor, None)
 
     async def execute(
         self,
@@ -118,7 +121,7 @@ class DailyReviewApp:
             await repository.add_plan(plan)
             await repository.add_decision(plan_decision)
             await GrantIssuer(transaction).issue(grant)
-        execution = await self._motor.execute(MotorExecutionRequest(
+        execution = await self._facade.execute(MotorExecutionRequest(
             grant_id, task_id, task.workflow, task.parameters, bindings, task.deadline,
             approval.allowed_permissions, priority=task.priority,
         ))
