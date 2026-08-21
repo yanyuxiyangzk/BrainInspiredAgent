@@ -421,23 +421,34 @@ class QuantRuntimeService:
                 )
 
     async def _dna_context(self, workflow_role: str) -> dict[str, object]:
-        rows = await self._database.fetch_all(
-            "SELECT organization_dna_id,organization_version,organization_content_digest,"
-            "agent_dna_id,agent_version,agent_content_digest,workflow_dna_id,workflow_version,"
-            "workflow_content_digest FROM dna_execution_context "
-            "ORDER BY rowid DESC LIMIT 1")
-        if rows:
-            identity = dict(rows[0])
-            return {"workflow_role": workflow_role, "source": "runtime.dna.bootstrap",
-                    "organization_dna_id": identity["organization_dna_id"],
-                    "organization_version": identity["organization_version"],
-                    "organization_content_digest": identity["organization_content_digest"],
-                    "agent_dna_id": identity["agent_dna_id"], "agent_version": identity["agent_version"],
-                    "agent_content_digest": identity["agent_content_digest"],
-                    "workflow_dna_id": identity["workflow_dna_id"], "workflow_version": identity["workflow_version"],
-                    "workflow_content_digest": identity["workflow_content_digest"],
-                    "organization_role": "lead", "context_digest": "runtime.bootstrap"}
-        return {"workflow_role": workflow_role, "source": "runtime.dna.bootstrap"}
+        row = await self._database.fetch_one(
+            "SELECT o.dna_id organization_dna_id,o.version organization_version,"
+            "o.content_digest organization_content_digest,m.role organization_role,"
+            "a.dna_id agent_dna_id,a.version agent_version,a.content_digest agent_content_digest,"
+            "w.dna_id workflow_dna_id,w.version workflow_version,"
+            "w.content_digest workflow_content_digest "
+            "FROM organization_dna_definition o "
+            "JOIN organization_dna_member m ON m.organization_dna_id=o.dna_id "
+            "AND m.organization_version=o.version "
+            "JOIN agent_dna_definition a ON a.dna_id=m.agent_dna_id "
+            "AND a.version=m.agent_version "
+            "JOIN agent_dna_workflow_ref r ON r.agent_dna_id=a.dna_id "
+            "AND r.agent_version=a.version "
+            "JOIN dna_definition w ON w.dna_id=r.workflow_dna_id "
+            "AND w.version=r.workflow_version "
+            "WHERE o.dna_id='org.quant.default' AND o.status='ACTIVE' "
+            "AND a.status='ACTIVE' AND w.status='ACTIVE' AND m.role='lead' AND r.role=?",
+            (workflow_role,),
+        )
+        if row is None:
+            raise RuntimeError(f"active three-layer DNA is unavailable for {workflow_role}")
+        identity = dict(row)
+        digest_input = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+        return identity | {
+            "workflow_role": workflow_role,
+            "source": "runtime.dna.active",
+            "context_digest": "sha256:" + hashlib.sha256(digest_input.encode()).hexdigest(),
+        }
 
     async def quiesce(self) -> None:
         self._accepting = False
