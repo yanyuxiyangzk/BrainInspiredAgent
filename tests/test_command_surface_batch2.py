@@ -51,6 +51,9 @@ async def test_batch2_query_surface_and_catalog_are_real(tmp_path: Path) -> None
     assert len((await invoke(path, "skills", "show", "fake-summary"))["skills"]) == 1
     for view in ("list", "active", "show", "lineage", "explain", "executions"):
         assert "dna" in (await invoke(path, "dna", view, "missing")) or view == "executions"
+    active_dna = (await invoke(path, "dna", "active", "--limit", "10"))["dna"]
+    assert len(active_dna) == 4
+    assert {item["kind"] for item in active_dna} == {"organization", "agent", "workflow"}
 
 
 @pytest.mark.asyncio

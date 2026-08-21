@@ -144,19 +144,22 @@ class CommandSurfaceQuery:
                 ("dna_definition", "workflow"),
             ):
                 active = " WHERE status='ACTIVE'" if view == "active" else ""
-                rows.extend(await self._rows(
+                found = await self._rows(
                     f"SELECT dna_id,version,status,content_digest,revision,created_at "
                     f"FROM {table}{active} ORDER BY created_at DESC LIMIT ?", (limit,),
-                ))
-                for row in rows[-limit:]:
+                )
+                for row in found:
                     row["kind"] = kind
+                rows.extend(found)
             return {"dna": rows[:limit], "view": view}
         if view == "executions":
+            where = "" if identifier is None else "WHERE organization_dna_id=? OR agent_dna_id=? OR workflow_dna_id=? OR correlation_id=?"
+            params: Sequence[object] = (limit,) if identifier is None else (identifier, identifier, identifier, identifier, limit)
             rows = await self._rows(
                 "SELECT context_digest,correlation_id,plan_id,task_id,run_id,episode_id,"
                 "evaluation_id,organization_dna_id,organization_version,organization_role,"
                 "agent_dna_id,agent_version,workflow_dna_id,workflow_version "
-                "FROM dna_execution_context ORDER BY rowid DESC LIMIT ?", (limit,),
+                f"FROM dna_execution_context {where} ORDER BY rowid DESC LIMIT ?", params,
             )
             return {"executions": rows}
         if view == "show":
