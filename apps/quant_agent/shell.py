@@ -11,7 +11,9 @@ from typing import TextIO, cast
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
+from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import Float
+from prompt_toolkit.layout.controls import BufferControl
 from prompt_toolkit.styles import Style
 
 from apps.quant_agent.commands import COMMAND_SPECS, COMMANDS, command_help
@@ -94,6 +96,35 @@ def _find_floats(container: object) -> tuple[Float, ...]:
     return ()
 
 
+def _shell_key_bindings() -> KeyBindings:
+    """Keep Enter as submit while allowing Ctrl+J to add a new line."""
+    bindings = KeyBindings()
+
+    @bindings.add("enter")
+    def _submit(event: object) -> None:  # type: ignore[no-untyped-def]
+        event.current_buffer.validate_and_handle()  # type: ignore[attr-defined]
+
+    @bindings.add("c-j")
+    def _insert_newline(event: object) -> None:  # type: ignore[no-untyped-def]
+        # ``prompt_toolkit``'s event exposes the current buffer; keeping this
+        # binding local avoids changing the global editing behaviour.
+        event.current_buffer.insert_text("\n")  # type: ignore[attr-defined]
+
+    return bindings
+
+
+def _set_input_height(session: PromptSession[str], minimum: int = 3) -> None:
+    """Give the multiline editor a comfortable three-line starting height."""
+    for window in session.app.layout.find_all_windows():
+        if (
+            isinstance(window.content, BufferControl)
+            and window.content.buffer is session.default_buffer
+        ):
+            # A plain integer is intentional here: prompt_toolkit otherwise
+            # replaces the default dynamic height during the first render.
+            window.height = minimum
+
+
 async def interactive(
     database_path: Path, stdin: TextIO, stdout: TextIO, stderr: TextIO,
 ) -> int:
@@ -117,11 +148,16 @@ async def interactive(
             completer=SlashCompleter(), complete_while_typing=True,
             complete_in_thread=False, style=SHELL_STYLE,
             include_default_pygments_style=False,
+            multiline=True,
+            key_bindings=_shell_key_bindings(),
         )
         _align_completion_menu(live_session)
     stdout.write(BANNER)
     stdout.write(f"BIA terminal ready · {database_path.resolve()}\n")
-    stdout.write("Type / to browse commands, use arrows to select, /exit to stop.\n")
+    stdout.write(
+        "Type / to browse commands, use arrows to select, Ctrl+J for a new line, "
+        "/exit to stop.\n"
+    )
     stdout.flush()
     try:
         while True:
