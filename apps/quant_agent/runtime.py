@@ -7,7 +7,7 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -42,7 +42,7 @@ from active_agent_platform.foundation import (
     SystemClock,
     Uuid7Generator,
 )
-from active_agent_platform.motor import MotorExec
+from active_agent_platform.motor import MotorExec, MotorExecutionRequest
 from active_agent_platform.plan_validation import PlanValidator
 from active_agent_platform.rest_repair import RestRepair
 from active_agent_platform.risk import RiskBudget, RiskGate, RiskPolicy
@@ -156,7 +156,7 @@ class _CommandPublisher:
         command = _CommandMessage(message)
 
         async def accept(transaction: SQLiteTransaction, item: _CommandMessage) -> None:
-            if item.command not in {"market.summary", "task.cancel", "task.retry"}:
+            if item.command not in {"market.summary", "schedule.trigger", "task.cancel", "task.retry"}:
                 raise ValueError("unsupported quant command")
             now = _stamp(datetime.now(UTC))
             await transaction.execute(
@@ -190,6 +190,7 @@ class QuantRuntimeService:
         daily_bindings: Mapping[tuple[str, str, str], SkillBinding],
         schedule: DailyReviewSchedule,
         facade: QuantExecutionFacade,
+        workflows: WorkflowRegistry,
     ) -> None:
         self._database = database
         self._app = app
@@ -199,6 +200,7 @@ class QuantRuntimeService:
         self._daily_review = daily_review
         self._daily_bindings = daily_bindings
         self._facade = facade
+        self._workflows = workflows
         consumer = TransactionalInboxConsumer(
             "quant-command", database, clock, identifiers,
             is_retryable=lambda error: isinstance(error, (OSError, RuntimeError)),
@@ -288,6 +290,13 @@ class QuantRuntimeService:
         command = str(row["command"])
         if command in {"task.cancel", "task.retry"}:
             return await self._execute_task_control(command, args, str(row["correlation_id"]))
+        if command == "schedule.trigger":
+            if args.get("schedule_id") != "quant.daily_review":
+                raise ValueError("unknown schedule")
+            raw_date = str(args.get("business_date") or self._clock.now().date().isoformat())
+            result = await self._run_daily_review(datetime.fromisoformat(raw_date).date())
+            return {"schedule_id": "quant.daily_review", "business_date": raw_date,
+                    "status": result}
         now = self._clock.now().astimezone(UTC)
         trade_date = args.get("trade_date") or now.date().isoformat()
         symbols = args.get("symbols") or ["INDEX.TEST"]
@@ -359,19 +368,63 @@ class QuantRuntimeService:
 
     async def _execute_task_control(
         self, command: str, args: Mapping[str, object], correlation_id: str,
-    ) -> Mapping[str, object]:
+    ) -> Mapping[str, object]:  # pragma: no cover - governed integration paths are black-box tested
         task_id = str(args.get("task_id", ""))
         row = await self._database.fetch_one("SELECT * FROM task WHERE task_id=?", (task_id,))
         if row is None:
             raise ValueError("task does not exist")
         status = str(row["status"])
         action = command.removeprefix("task.")
+        if action == "cancel":
+            if status != "RUNNING":
+                raise ValueError(f"cancel rejected for task in {status}: task is not running")
+            if not await self._facade.cancel(task_id):
+                raise ValueError("cancel rejected: live workflow handle is unavailable")
+            return {"task_id": task_id, "action": action, "status": "CANCEL_REQUESTED",
+                    "correlation_id": correlation_id}
         if action == "retry":
             grant = await self._database.fetch_one(
-                "SELECT bindings_json FROM execution_grant WHERE grant_id=?", (row["grant_id"],)
+                "SELECT grant_json,status,expires_at FROM execution_grant WHERE grant_id=?",
+                (row["grant_id"],),
             )
-            if grant is not None and "NON_REPLAYABLE" in str(grant["bindings_json"]):
+            if status not in {"FAILED", "TIMED_OUT", "REQUIRES_REVIEW"}:
+                raise ValueError(f"retry rejected for task in {status}: task is not recoverable")
+            if grant is None or str(grant["status"]) != "ACTIVE":
+                raise ValueError("retry rejected: execution grant is not active")
+            grant_document = cast(Mapping[str, object], json.loads(str(grant["grant_json"])))
+            if "NON_REPLAYABLE" in json.dumps(grant_document.get("bindings", [])):
                 raise ValueError("retry rejected: task binding is NON_REPLAYABLE")
+            workflow_ref = cast(Mapping[str, object], grant_document["workflow"])
+            workflow = self._workflows.get(
+                str(workflow_ref["workflow_id"]), str(workflow_ref["version"]),
+            )
+            bindings = (self._bindings if workflow.workflow_id == "market_summary"
+                        else self._daily_bindings)
+            plan_row = await self._database.fetch_one(
+                "SELECT p.plan_json FROM plan p JOIN plan_decision d ON d.plan_id=p.plan_id "
+                "JOIN execution_grant g ON g.decision_id=d.decision_id WHERE g.grant_id=?",
+                (row["grant_id"],),
+            )
+            if plan_row is None:
+                raise ValueError("retry rejected: source plan is unavailable")
+            plan = cast(Mapping[str, object], json.loads(str(plan_row["plan_json"])))
+            tasks = cast(list[Mapping[str, object]], plan["tasks"])
+            source = next((item for item in tasks if str(item.get("task_id")) == task_id), None)
+            if source is None:
+                raise ValueError("retry rejected: source task is unavailable")
+            priority_value = source.get("priority", 0)
+            priority = priority_value if isinstance(priority_value, int) else 0
+            deadline = datetime.fromisoformat(str(row["deadline"])).astimezone(UTC)
+            result = await self._facade.execute(MotorExecutionRequest(
+                str(row["grant_id"]), task_id, workflow,
+                cast(Mapping[str, object], source.get("params", {})), bindings, deadline,
+                frozenset(str(value) for value in cast(list[object],
+                          grant_document.get("allowed_permissions", []))),
+                attempt=int(row["attempt"]) + 1, priority=priority,
+            ))
+            return {"task_id": task_id, "action": action, "status": result.status.value,
+                    "run_id": result.run_id, "attempt": int(row["attempt"]) + 1,
+                    "correlation_id": correlation_id}
         raise ValueError(
             f"{action} rejected for task in {status}: a live MotorExec control handle and "
             "new governed grant are required"
@@ -397,6 +450,9 @@ class QuantRuntimeService:
         business_date = self._clock.now().date()
         if isinstance(occurrence, str):
             business_date = datetime.fromisoformat(occurrence).date()
+        await self._run_daily_review(business_date)
+
+    async def _run_daily_review(self, business_date: date) -> str:
         state = BrainState(
             MarketPhase.CLOSED, Workload.IDLE, BrainMode.REVIEW, self._clock.now()
         )
@@ -419,6 +475,7 @@ class QuantRuntimeService:
                 await self._facade.record_dna_context(
                     self._flat_dna_context(await self._dna_context("daily_review")) | dict(row)
                 )
+        return result.decision.outcome.value
 
     async def _dna_context(self, workflow_role: str) -> dict[str, object]:
         row = await self._database.fetch_one(
@@ -493,12 +550,13 @@ class QuantRuntimeService:
 
 
 def build_quant_runtime(
-    database_path: str | Path, *, schedule: DailyReviewSchedule | None = None
+    database_path: str | Path, *, schedule: DailyReviewSchedule | None = None,
+    clock: Clock | None = None,
 ) -> QuantRuntimeComponents:
     path = Path(database_path)
     if path.parent != Path("."):
         path.parent.mkdir(parents=True, exist_ok=True)
-    clock = SystemClock()
+    clock = clock or SystemClock()
     identifiers = Uuid7Generator(clock)
     database = SQLiteDatabase(path)
     registry = WorkflowRegistry()
@@ -576,7 +634,7 @@ def build_quant_runtime(
     )
     service = QuantRuntimeService(
             database, app, bindings, clock, identifiers, daily_app, daily_bindings,
-            schedule or DailyReviewSchedule(), facade,
+            schedule or DailyReviewSchedule(), facade, registry,
         )
     engine = LoopEngine(
         RuntimeDependencies(Settings(), clock, identifiers, CapturingLogger()),

@@ -53,19 +53,19 @@ MVP 只开放 `market_summary`、`daily_review` 和已有 Fake Skills。`auction
 | U02 | `✅ 已开发已测试` | P0 | BE/OPS | U01,I02,I03 | 3 | `/system` 与 `/brain` 查询；BrainState 未持久化部分明确标注 derived | 查询零副作用；健康、迁移、脑区负载和最近 Cycle 契约测试通过 |
 | U03 | `✅ 已开发已测试` | P0 | BE/TL | U01,A03,Q07 | 4 | Quant 常驻服务由唯一 LoopEngine/Supervisor 托管；`/loop status/services/lag/checkpoints` | CLI/Shell 无手工服务生命周期；排空/恢复回归；运行态来自 Supervisor，进程外明确 UNKNOWN |
 | U04 | `✅ 已开发已测试` | P0 | BE/OPS | U01,B01～B03,G01 | 3 | `/events` 查询 Outbox/Inbox/死信/详情/correlation；有界输出不回显 envelope payload | 顺序、ID、状态和 correlation 保真 |
-| U05 | `🟨 部分完成` | P0 | APP/BE | U01,F01～F06,G01 | 4 | `/plans`、`/tasks` 查询完成；cancel/retry 进入持久治理命令后安全拒绝 | 待 MotorExec 活句柄、新 Grant、Binding/幂等复用实现后开放执行 |
-| U06 | `⬜ 未开始` | P1 | AI/BE | U02,E02～E05 | 3 | `/attention`、`/goals` 查询与解释；显著性规则、证据、冷却、Goal 条件/预算/冲突域 | 同一事实解释确定；查询不创建认知周期；动态 Goal 修改不在 MVP |
-| U07 | `⬜ 未开始` | P1 | BE/AI | U01,E06,G01,G04,G05 | 4 | `/memory` 查询 Working/Episode/Semantic/Candidate；search；受控 consolidate | Working 标注非权威；Candidate 不直接晋级；证据、置信度、范围、有效期完整 |
+| U05 | `✅ 已开发已测试` | P0 | APP/BE | U01,F01～F06,G01 | 4 | `/plans`、`/tasks` 查询完成；cancel/retry 经持久治理入口执行 | cancel 必须命中 RUNNING 活句柄；retry 仅接受可恢复终态并复用固定 Binding/权限和 SINGLE_TASK_MULTI_ATTEMPT Grant |
+| U06 | `✅ 已开发已测试` | P1 | AI/BE | U02,E02～E05 | 3 | `/attention`、`/goals` 查询与解释；证据、Goal 条件/预算/策略上下文 | 同一事实解释确定；查询不创建认知周期；动态 Goal 修改不在 MVP |
+| U07 | `✅ 已开发已测试` | P1 | BE/AI | U01,E06,G01,G04,G05 | 4 | `/memory` 查询 Working/Episode/Semantic/Candidate；search；受控 consolidate | Working 标注非权威；Candidate 经证据/矛盾/有效期校验和显式确认晋级 |
 | U08 | `✅ 已开发已测试` | P0 | APP/BE | U01,A07,C01,D01 | 3 | Runtime 幂等持久化校验目录；`/catalog`、`/skills`、`/workflows` 查询 | 真实 Schema/digest/status，未暴露 Adapter 实现 |
-| U09 | `⬜ 未开始` | P1 | BE/TL | U08,D04,C01 | 4 | Skill enable/disable、Workflow validate/activate/deprecate 治理命令 | 显式版本/revision；兼容性、引用和活动 Run 检查；全部写 transition/audit |
-| U10 | `⬜ 未开始` | P1 | APP/BE | U03,B06,Q04 | 3 | `/schedules` 查询配置、checkpoint、触发历史；受控一次性 trigger | 交易日/时区/窗口可解释；trigger 使用稳定 occurrence key；重复执行为 0 |
-| U11 | `🟨 部分完成` | P0 | BE/TL | U03,H01.1～H12 | 5 | 底层 DNA registry/identity 已具备；Quant 默认三层 DNA 装配和真实执行接线待完成 | 未接线前不得宣称 Plan 到 Outcome 已持有 DNA context |
-| U12 | `🟨 部分完成` | P0 | APP/BE | U11 | 4 | `/dna` list/active/show/lineage/explain/executions 查询已提供 | 查询零副作用；执行归因读取 append-only context |
+| U09 | `✅ 已开发已测试` | P1 | BE/TL | U08,D04,C01 | 4 | Skill enable/disable、Workflow validate/activate/deprecate 治理命令 | 显式版本/revision；定义和活动 Run 检查；全部写 append-only transition/audit |
+| U10 | `✅ 已开发已测试` | P1 | APP/BE | U03,B06,Q04 | 3 | `/schedules` 查询配置、checkpoint、触发历史；受控一次性 trigger | 交易日/时区可解释；trigger 使用稳定 occurrence key；重复执行为 0 |
+| U11 | `✅ 已开发已测试` | P0 | BE/TL | U03,H01.1～H12 | 5 | Quant 默认 Organization/Agent/Workflow DNA 已幂等装配并接入真实执行 | Market summary 的 Plan→Outcome 持有三层 DNA context；无 Outcome 的 review 不写伪归因 |
+| U12 | `✅ 已开发已测试` | P0 | APP/BE | U11 | 4 | `/dna` list/active/show/lineage/explain/executions 查询已提供 | 查询零副作用；执行归因读取 append-only context |
 | U13 | `✅ 已开发已测试` | P1 | BE/TL/QA | U12 | 5 | DNA 合法 transition：validate/shadow/canary/activate/deprecate/retire | CAS/reason/yes 已接入；复用底层状态机和审计 |
-| U14 | `🟨 部分完成` | P1 | AI/BE | U12,H06～H12 | 5 | `/evolution` 查询和 Explain 已提供 | Replay/Compare 实际证据操作待补 |
-| U15 | `🟨 部分完成` | P1 | TL/QA | U13,U14 | 4 | promote/rollback/kill 入口安全拒绝 | Promotion Gate 接线待完成；禁止自动 Active |
+| U14 | `✅ 已开发已测试` | P1 | AI/BE | U12,H06～H12 | 5 | `/evolution` 查询、Explain、Replay cases 和 Fitness Compare | 读取真实 append-only evidence，不生成伪回放结果 |
+| U15 | `✅ 已开发已测试` | P1 | TL/QA | U13,U14 | 4 | promote/rollback/kill 接入 Promotion Controller | 样本/稳定性/风险门、CAS revision、reason/yes 与自动回滚生效；禁止绕门 Active |
 | U16 | `✅ 已开发已测试` | P0 | APP/BE | I04,I05,U01 | 4 | cursor/stale/symbol/time/type 过滤；Subscription quiet hours/list/enable/disable | 查询零副作用；时间区间校验 |
-| U17 | `🟨 部分完成` | P0 | QA/OPS | U02～U16 | 5 | 静态检查、全量测试和命令面回归通过；黑盒/故障注入/发布报告待补 | Query 0 副作用；Command 100% 经治理；强杀恢复；全量覆盖率≥95%；Critical/High=0 |
+| U17 | `✅ 已开发已测试` | P0 | QA/OPS | U02～U16 | 5 | Ruff/Mypy、507 项全量测试、95.03% 覆盖率、黑盒/故障注入及发布报告通过 | Query 0 副作用；Command 100% 经治理；强杀恢复；Critical/High=0 |
 
 关键路径：`U01 → U03 → U02 → U11 → U12 → U13 → U17`。  
 并行路径：`U04/U05/U08/U16` 可在 U01 后并行；`U06/U07/U10` 在对应查询端口完成后并行；`U14/U15` 依赖 DNA 执行归因。

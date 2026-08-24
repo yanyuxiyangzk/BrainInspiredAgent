@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 from io import StringIO
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
+from apps.quant_agent import runtime as runtime_module
 from apps.quant_agent.cli import main, run
 from apps.quant_agent.commands import command_help
 from apps.quant_agent.shell import (
@@ -61,7 +64,17 @@ def test_completion_menu_is_anchored_under_slash() -> None:
 
 
 @pytest.mark.asyncio
-async def test_interactive_shell_starts_help_and_stops(tmp_path: Path) -> None:
+async def test_interactive_shell_starts_help_and_stops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_builder = runtime_module.build_quant_runtime
+    future_review = (datetime.now(ZoneInfo("Asia/Shanghai")) + timedelta(hours=1)).time()
+    monkeypatch.setattr(
+        runtime_module, "build_quant_runtime",
+        lambda path: real_builder(path, schedule=runtime_module.DailyReviewSchedule(
+            at=future_review,
+        )),
+    )
     stdin = StringIO(
         "/help\n/help loop\n/loop status\n/loop services\n/loop lag\n"
         "/loop checkpoints\n/exit\n"

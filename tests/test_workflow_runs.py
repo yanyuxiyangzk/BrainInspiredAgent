@@ -236,5 +236,5 @@ async def test_migration_adds_append_only_fact_tables(tmp_path: Path) -> None:
     )
     assert [row["name"] for row in tables] == ["node_run_transition", "workflow_run_transition"]
     migrations = await database.fetch_all("SELECT version FROM schema_migration ORDER BY version")
-    assert migrations[-1]["version"] == "023_command_execution_runtime"
+    assert migrations[-1]["version"] == "024_catalog_governance"
     await database.close()

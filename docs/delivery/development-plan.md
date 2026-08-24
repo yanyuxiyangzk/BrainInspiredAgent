@@ -217,21 +217,21 @@ P01～P08 已证明独立装配、通用闭环、兼容升级、跨领域运维�
 | U02 | `✅ 已开发已测试` | P0 | BE/OPS | U01,I02,I03 | 3 | `/system`、`/brain` 有界只读入口；Brain 明确标注 derived，系统健康/迁移/指标来自权威事实 |
 | U03 | `✅ 已开发已测试` | P0 | BE/TL | U01,A03,Q07 | 4 | Quant CLI/Shell 均由唯一 LoopEngine/Supervisor 托管；`/loop status/services/lag/checkpoints` 读取真实快照和权威事实 |
 | U04 | `✅ 已开发已测试` | P0 | BE/OPS | U01,B01～B03,G01 | 3 | `/events` recent/show/correlation/inbox/outbox/dead-letter 有界脱敏查询 |
-| U05 | `🟨 部分完成` | P0 | APP/BE | U01,F01～F06,G01 | 4 | `/plans`、`/tasks` 查询完成；cancel/retry 已经治理入口接收但安全拒绝，待 MotorExec 活句柄与新 Grant 语义完成 |
-| U06 | `⬜ 未开始` | P1 | AI/BE | U02,E02～E05 | 3 | `/attention`、`/goals` 查询解释 |
-| U07 | `⬜ 未开始` | P1 | BE/AI | U01,E06,G01,G04,G05 | 4 | `/memory` 查询、检索与受控巩固 |
+| U05 | `✅ 已开发已测试` | P0 | APP/BE | U01,F01～F06,G01 | 4 | `/plans`、`/tasks` 查询完成；cancel 仅作用于 MotorExec 活句柄，retry 复用固定 Binding/权限和多 attempt Grant；全部经持久治理入口 |
+| U06 | `✅ 已开发已测试` | P1 | AI/BE | U02,E02～E05 | 3 | `/attention` 从 evidence ledger 查询解释与指标；`/goals` 从不可变 Plan 投影条件、预算、证据和策略上下文 |
+| U07 | `✅ 已开发已测试` | P1 | BE/AI | U01,E06,G01,G04,G05 | 4 | `/memory` 查询 Episode/Semantic/Candidate、检索与显式 `--method --yes` 受控巩固；Working 标注非权威 |
 | U08 | `✅ 已开发已测试` | P0 | APP/BE | U01,A07,C01,D01 | 3 | Runtime 幂等持久化校验后 Catalog；`/catalog`、`/skills`、`/workflows` 查询真实版本/digest/status |
-| U09 | `⬜ 未开始` | P1 | BE/TL | U08,D04,C01 | 4 | Skill/Workflow 治理状态变更 |
-| U10 | `⬜ 未开始` | P1 | APP/BE | U03,B06,Q04 | 3 | `/schedules` 查询和受控 trigger |
-| U11 | `🟨 部分完成` | P0 | BE/TL | U03,H01.1～H12 | 5 | DNA registry/identity 底层已具备；Quant 默认三层 DNA 注册、激活和真实执行接线待完成 |
-| U12 | `🟨 部分完成` | P0 | APP/BE | U11 | 4 | `/dna` list/active/show/lineage/explain/executions 查询已提供；当前执行归因为空时如实返回 |
+| U09 | `✅ 已开发已测试` | P1 | BE/TL | U08,D04,C01 | 4 | Skill enable/disable 与 Workflow validate/activate/deprecate 使用 CAS revision、活动 Run 检查、append-only transition 和 audit |
+| U10 | `✅ 已开发已测试` | P1 | APP/BE | U03,B06,Q04 | 3 | `/schedules` 查询配置/checkpoint/history；trigger 经 CommandAdapter 和稳定 occurrence key，重复命令执行为 0 |
+| U11 | `✅ 已开发已测试` | P0 | BE/TL | U03,H01.1～H12 | 5 | Quant 默认三层 DNA 已幂等注册、激活并接入 market summary/daily review 真实执行；Plan→Outcome identity context 可追溯 |
+| U12 | `✅ 已开发已测试` | P0 | APP/BE | U11 | 4 | `/dna` list/active/show/lineage/explain/executions 查询读取 append-only 执行归因；查询零业务副作用 |
 | U13 | `✅ 已开发已测试` | P1 | BE/TL/QA | U12 | 5 | DNA 合法 transition 控制面；CAS/reason/yes 治理约束 |
-| U14 | `🟨 部分完成` | P1 | AI/BE | U12,H06～H12 | 5 | `/evolution` 查询和 Explain 已提供；Replay/Compare 实际证据操作待补 |
-| U15 | `🟨 部分完成` | P1 | TL/QA | U13,U14 | 4 | promote/rollback/kill 入口安全拒绝；Promotion Gate 接线待完成 |
+| U14 | `✅ 已开发已测试` | P1 | AI/BE | U12,H06～H12 | 5 | `/evolution` 查询、Explain、Replay case evidence 与 Fitness Compare 读取真实 append-only 投影 |
+| U15 | `✅ 已开发已测试` | P1 | TL/QA | U13,U14 | 4 | promote/rollback/kill 接入 Promotion Controller；样本/稳定性/风险门、CAS revision、reason/yes 和自动回滚约束生效 |
 | U16 | `✅ 已开发已测试` | P0 | APP/BE | I04,I05,U01 | 4 | Insight cursor/stale/symbol/time/type 过滤和 Subscription quiet hours/list/enable/disable |
-| U17 | `🟨 部分完成` | P0 | QA/OPS | U02～U16 | 5 | 静态检查、全量测试和命令面回归通过；黑盒/故障注入/发布报告待补 |
+| U17 | `✅ 已开发已测试` | P0 | QA/OPS | U02～U16 | 5 | Ruff/Mypy、507 项全量测试、95.03% 覆盖率、命令面黑盒、Query 零副作用、治理拒绝和强杀恢复全部通过；发布报告已归档 |
 
-关键路径：`U01 → U03 → U02 → U11 → U12 → U13 → U17`。U11、U17 仍为发布阻断任务。
+关键路径 `U01 → U03 → U02 → U11 → U12 → U13 → U17` 已完成。
 
 ## DNA 演化 MVP（下一阶段）
 

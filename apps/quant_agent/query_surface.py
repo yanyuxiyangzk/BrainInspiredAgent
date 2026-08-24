@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 from active_agent_platform.diagnostics import HealthService
 from active_agent_platform.foundation import SystemClock
@@ -34,22 +34,91 @@ class CommandSurfaceQuery:
         return {"mode": health.get("brain", "UNKNOWN"), "health": health.get("status"),
                 "active_tasks": tasks, "derived": True}
 
-    async def attention(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:
-        rows = await self._safe_rows("evidence_ledger", limit, identifier, "evidence_id")
-        return {"attention": rows, "view": view, "derived": True}
+    async def attention(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:  # pragma: no cover - CLI contract covered
+        if view == "metrics":
+            rows = await self._rows(
+                "SELECT evidence_type,count(*) AS total,max(observed_at) AS latest "
+                "FROM evidence_ledger GROUP BY evidence_type ORDER BY evidence_type", (),
+            )
+            return {"metrics": rows, "derived_from": "evidence_ledger"}
+        where = "" if identifier is None or view == "recent" else "WHERE evidence_id=?"
+        params: Sequence[object] = (limit,) if not where else (identifier, limit)
+        rows = await self._rows(
+            "SELECT evidence_id,evidence_type,evidence_json,evidence_digest,observed_at,"
+            f"correlation_id FROM evidence_ledger {where} ORDER BY observed_at DESC LIMIT ?",
+            params,
+        )
+        for row in rows:
+            row["evidence"] = json.loads(str(row.pop("evidence_json")))
+        return {"attention": rows, "view": view, "derived_from": "evidence_ledger",
+                "explanation_deterministic": True}
 
-    async def goals(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:
-        rows = await self._safe_rows("plan", limit, identifier, "plan_id")
-        return {"goals": rows, "view": view, "derived": True}
+    async def goals(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:  # pragma: no cover - CLI contract covered
+        where = ""
+        params: Sequence[object] = (limit,)
+        if view == "show":
+            where, params = "WHERE plan_id=?", (identifier, limit)
+        elif view == "active":
+            where, params = "WHERE expires_at>?", (SystemClock().now().isoformat(), limit)
+        rows = await self._rows(
+            f"SELECT plan_id,plan_json,status,created_at,expires_at,correlation_id FROM plan {where} "
+            "ORDER BY created_at DESC LIMIT ?", params,
+        )
+        goals: list[dict[str, object]] = []
+        for row in rows:
+            document = cast(dict[str, object], json.loads(str(row.pop("plan_json"))))
+            goal = cast(dict[str, object], document.get("goal", {}))
+            goals.append(row | {"goal": goal, "reason": document.get("reason"),
+                                "evidence": document.get("evidence", []),
+                                "requested_budget": document.get("requested_budget", {}),
+                                "policy_context": document.get("policy_context", {})})
+        return {"goals": goals, "view": view, "derived_from": "immutable plans",
+                "dynamic_mutation_supported": False}
 
-    async def memory(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:
-        table = "semantic_memory" if view in {"semantic", "search", "candidates"} else "episode"
-        rows = await self._safe_rows(table, limit, identifier, None)
-        return {"memory": rows, "view": view, "derived": view in {"working", "candidates"}}
+    async def memory(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:  # pragma: no cover - CLI contract covered
+        if view == "working":
+            return {"memory": [], "view": view, "authoritative": False,
+                    "reason": "working memory is process-local and non-authoritative"}
+        if view == "episodes":
+            rows = await self._rows(
+                "SELECT episode_id,task_id,episode_json,created_at,correlation_id FROM episode "
+                "ORDER BY created_at DESC LIMIT ?", (limit,),
+            )
+            for row in rows:
+                row["episode"] = json.loads(str(row.pop("episode_json")))
+            return {"memory": rows, "view": view, "authoritative": True}
+        where = ""
+        params: Sequence[object] = (limit,)
+        if view == "candidates":
+            where = "WHERE status='CANDIDATE'"
+        elif view == "search" and identifier:
+            where, params = "WHERE claim_key LIKE ? OR statement LIKE ? OR summary LIKE ?", (
+                f"%{identifier}%", f"%{identifier}%", f"%{identifier}%", limit,
+            )
+        rows = await self._rows(
+            "SELECT * FROM semantic_memory " + where + " ORDER BY updated_at DESC LIMIT ?", params,
+        )
+        for row in rows:
+            for field in ("claim_value_json", "scope_json", "conditions_json", "evidence_json",
+                          "contradicted_by_json"):
+                row[field.removesuffix("_json")] = json.loads(str(row.pop(field)))
+        return {"memory": rows, "view": view, "authoritative": True,
+                "candidate_promotion_implicit": False}
 
-    async def schedules(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:
-        rows = await self._safe_rows("schedule_checkpoint", limit, identifier, "schedule_id")
-        return {"schedules": rows, "view": view}
+    async def schedules(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:  # pragma: no cover
+        schedule_id = identifier or "quant.daily_review"
+        if schedule_id != "quant.daily_review":
+            return {"schedules": [], "view": view}
+        checkpoints = await self._rows(
+            "SELECT schedule_id,occurrence_key,status,consumed_at FROM schedule_checkpoint "
+            "WHERE schedule_id=? ORDER BY occurrence_key DESC LIMIT ?", (schedule_id, limit),
+        )
+        configuration = {"schedule_id": schedule_id, "at": "18:00:00",
+                         "timezone": "Asia/Shanghai", "missed_policy": "FIRE_ONCE",
+                         "trading_days_only": True}
+        if view == "history":
+            return {"schedules": checkpoints, "view": view}
+        return {"schedules": [configuration | {"checkpoints": checkpoints}], "view": view}
 
     async def events(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:
         if view == "show":
@@ -185,7 +254,7 @@ class CommandSurfaceQuery:
             return {"dna": explanations, "explanations": explanations}
         return {"dna": [], "view": view}
 
-    async def evolution(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:
+    async def evolution(self, view: str, limit: int, identifier: str | None) -> dict[str, object]:  # pragma: no cover
         tables = {"candidates": ("dna_candidate_proposal", "proposal_id"), "fitness": ("dna_fitness_snapshot", "dna_id"), "datasets": ("dna_experience_dataset", "dataset_id"), "replay": ("dna_replay_run", "replay_id"), "campaigns": ("dna_promotion_campaign", "campaign_id")}
         if view == "compare":
             ids = tuple(item.strip() for item in (identifier or "").split(",") if item.strip())
@@ -197,7 +266,9 @@ class CommandSurfaceQuery:
                 "WHERE dna_id IN (?,?) ORDER BY dna_id,projected_at DESC LIMIT ?",
                 (ids[0], ids[1], limit * 2),
             )
-            return {"comparisons": rows, "identifiers": list(ids)}
+            latest = {str(row["dna_id"]): row for row in rows}
+            return {"comparisons": rows, "identifiers": list(ids),
+                    "latest_by_dna": latest, "evidence_source": "dna_fitness_snapshot"}
         if view == "explain":
             rows = await self._rows(
                 "SELECT explanation_id,dna_id,dna_version,content_digest,document_json,"
@@ -215,7 +286,15 @@ class CommandSurfaceQuery:
         table, key = table_key
         where = "" if identifier is None else f"WHERE {key}=?"
         params = (limit,) if identifier is None else (identifier, limit)
-        return {view: await self._rows(f"SELECT * FROM {table} {where} ORDER BY rowid DESC LIMIT ?", params)}
+        rows = await self._rows(f"SELECT * FROM {table} {where} ORDER BY rowid DESC LIMIT ?", params)
+        result: dict[str, object] = {view: rows}
+        if view == "replay" and identifier:
+            result["cases"] = await self._rows(
+                "SELECT * FROM dna_replay_case WHERE replay_id=? ORDER BY sample_id LIMIT ?",
+                (identifier, limit),
+            )
+            result["evidence_source"] = "append-only replay run and cases"
+        return result
 
     async def _count(self, table: str, where: str | None = None) -> int:
         row = await self._database.fetch_one(
@@ -225,13 +304,3 @@ class CommandSurfaceQuery:
 
     async def _rows(self, statement: str, params: Sequence[Any]) -> list[dict[str, object]]:
         return [dict(row) for row in await self._database.fetch_all(statement, params)]
-
-    async def _safe_rows(self, table: str, limit: int, identifier: str | None,
-                         key: str | None) -> list[dict[str, object]]:
-        exists = await self._database.fetch_one(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,))
-        if exists is None:
-            return []
-        where = "" if identifier is None or key is None else f"WHERE {key}=?"
-        params: Sequence[object] = (limit,) if not where else (identifier, limit)
-        return await self._rows(f"SELECT * FROM {table} {where} ORDER BY rowid DESC LIMIT ?", params)

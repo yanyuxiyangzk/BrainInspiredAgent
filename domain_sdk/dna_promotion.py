@@ -212,13 +212,33 @@ class DnaPromotionController:
         return await self._evaluate(campaign, observation.correlation_id)
 
     async def kill(self, campaign_id: str, *, reason: str,
-                   correlation_id: str) -> PromotionCampaign:
+                   correlation_id: str, expected_revision: int | None = None) -> PromotionCampaign:
         if not reason.strip():
             raise DnaPromotionError("kill switch reason must not be empty")
         campaign = await self.get(campaign_id)
+        if expected_revision is not None and campaign.revision != expected_revision:
+            raise DnaPromotionError("promotion campaign revision conflict")
         if campaign.stage in {PromotionStage.ROLLED_BACK, PromotionStage.STOPPED}:
             return campaign
         return await self._stop(campaign, f"kill_switch:{reason}", correlation_id)
+
+    async def evaluate(self, campaign_id: str, *, expected_revision: int,
+                       correlation_id: str) -> PromotionCampaign:
+        campaign = await self.get(campaign_id)
+        if campaign.revision != expected_revision:
+            raise DnaPromotionError("promotion campaign revision conflict")
+        return await self._evaluate(campaign, correlation_id)
+
+    async def rollback(self, campaign_id: str, *, expected_revision: int, reason: str,
+                       correlation_id: str) -> PromotionCampaign:
+        if not reason.strip():
+            raise DnaPromotionError("rollback reason must not be empty")
+        campaign = await self.get(campaign_id)
+        if campaign.revision != expected_revision:
+            raise DnaPromotionError("promotion campaign revision conflict")
+        if campaign.stage is not PromotionStage.ACTIVE:
+            raise DnaPromotionError("only an active campaign can be rolled back")
+        return await self._stop(campaign, f"manual_rollback:{reason}", correlation_id)
 
     async def get(self, campaign_id: str) -> PromotionCampaign:
         row = await self._database.fetch_one(

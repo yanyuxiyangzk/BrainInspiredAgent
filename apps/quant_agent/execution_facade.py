@@ -25,6 +25,9 @@ class QuantExecutionFacade:
             raise RuntimeError("outcome evaluator is not configured")
         return await self.evaluator.evaluate_and_record(request)
 
+    async def cancel(self, task_id: str) -> bool:
+        return await self.motor.cancel(task_id)
+
     async def record_dna_context(self, context: dict[str, object]) -> None:
         if self.database is None:
             return
@@ -33,7 +36,7 @@ class QuantExecutionFacade:
                     "organization_version", "organization_content_digest", "organization_role",
                     "agent_dna_id", "agent_version", "agent_content_digest", "workflow_dna_id",
                     "workflow_version", "workflow_content_digest")
-        if not all(key in context for key in required):
+        if not all(context.get(key) is not None for key in required):
             return
         execution_seed = {key: context[key] for key in required if key != "context_digest"}
         context["context_digest"] = "sha256:" + hashlib.sha256(json.dumps(

@@ -96,7 +96,7 @@ def _find_floats(container: object) -> tuple[Float, ...]:
     return ()
 
 
-def _shell_key_bindings() -> KeyBindings:
+def _shell_key_bindings() -> KeyBindings:  # pragma: no cover - prompt-toolkit callbacks
     """Keep Enter as submit while allowing Ctrl+J to add a new line."""
     bindings = KeyBindings()
 
@@ -113,7 +113,7 @@ def _shell_key_bindings() -> KeyBindings:
     return bindings
 
 
-def _set_input_height(session: PromptSession[str], minimum: int = 3) -> None:
+def _set_input_height(session: PromptSession[str], minimum: int = 3) -> None:  # pragma: no cover
     """Give the multiline editor a comfortable three-line starting height."""
     for window in session.app.layout.find_all_windows():
         if (
@@ -143,7 +143,7 @@ async def interactive(
     serving = asyncio.create_task(components.engine.run(), name="bia-loop-engine")
     await components.engine.wait_started()
     live_session: PromptSession[str] | None = None
-    if stdin.isatty() and stdout.isatty():
+    if stdin.isatty() and stdout.isatty():  # pragma: no cover - real TTY integration
         live_session = PromptSession(
             completer=SlashCompleter(), complete_while_typing=True,
             complete_in_thread=False, style=SHELL_STYLE,
@@ -161,7 +161,7 @@ async def interactive(
     stdout.flush()
     try:
         while True:
-            if live_session is not None:
+            if live_session is not None:  # pragma: no cover - real TTY integration
                 try:
                     line = await live_session.prompt_async([("class:prompt", "bia> ")])
                 except (EOFError, KeyboardInterrupt):

@@ -5,6 +5,7 @@ import json
 import subprocess
 import sys
 import time
+from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from active_agent_platform.events import (
     PersistedBusMessage,
     TransactionalInboxConsumer,
 )
-from active_agent_platform.foundation import SystemClock, Uuid7Generator
+from active_agent_platform.foundation import FakeClock, SystemClock, Uuid7Generator
 from active_agent_platform.storage import SQLiteDatabase
 from apps.brainagent_cli import run as run_brainagent
 from apps.quant_agent.cli import EXIT_OK, EXIT_UNAVAILABLE
@@ -146,11 +147,14 @@ async def test_q07_service_loop_stops_cleanly(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_q07_service_loop_polls_and_checkpoints(tmp_path: Path) -> None:
-    components = build_quant_runtime(tmp_path / "poll.db")
+    clock = FakeClock(datetime(2026, 8, 20, 0, 0, tzinfo=UTC))
+    components = build_quant_runtime(tmp_path / "poll.db", clock=clock)
     await components.database.initialize()
     await components.service.start()
     serving = asyncio.create_task(components.service.serve())
-    await asyncio.sleep(0.15)
+    for _ in range(2):
+        await asyncio.sleep(0)
+        clock.advance(0.1)
     await components.service.checkpoint()
     snapshot = await components.service.operational_snapshot()
     assert snapshot == {"lag": {"commands": 0, "outbox": 0}, "checkpoints": []}
@@ -162,6 +166,7 @@ async def test_q07_service_loop_polls_and_checkpoints(tmp_path: Path) -> None:
     populated = await components.service.operational_snapshot()
     assert populated["checkpoints"]
     await components.service.stop()
+    clock.advance(0.1)
     await asyncio.wait_for(serving, timeout=1)
     await components.database.close()
 

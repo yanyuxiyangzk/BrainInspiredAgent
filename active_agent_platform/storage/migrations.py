@@ -1269,6 +1269,32 @@ _COMMAND_EXECUTION_RUNTIME = Migration(
 )
 
 
+_CATALOG_GOVERNANCE = Migration(
+    "024_catalog_governance",
+    (
+        """
+        CREATE TABLE catalog_transition (
+            transition_id TEXT PRIMARY KEY,
+            subject_kind TEXT NOT NULL CHECK (subject_kind IN ('skill','workflow')),
+            subject_id TEXT NOT NULL,
+            version TEXT NOT NULL,
+            revision INTEGER NOT NULL CHECK (revision >= 1),
+            from_status TEXT NOT NULL,
+            to_status TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            correlation_id TEXT NOT NULL,
+            UNIQUE (subject_kind,subject_id,version,revision)
+        )
+        """,
+        """CREATE TRIGGER catalog_transition_no_update BEFORE UPDATE ON catalog_transition
+        BEGIN SELECT RAISE(ABORT, 'catalog_transition is append-only'); END""",
+        """CREATE TRIGGER catalog_transition_no_delete BEFORE DELETE ON catalog_transition
+        BEGIN SELECT RAISE(ABORT, 'catalog_transition is append-only'); END""",
+    ),
+)
+
+
 DEFAULT_MIGRATIONS = (
     _INITIAL_SCHEMA,
     _INBOX_BUSINESS_DEDUP,
@@ -1293,4 +1319,5 @@ DEFAULT_MIGRATIONS = (
     _ORGANIZATION_DNA,
     _DNA_EXECUTION_IDENTITY,
     _COMMAND_EXECUTION_RUNTIME,
+    _CATALOG_GOVERNANCE,
 )

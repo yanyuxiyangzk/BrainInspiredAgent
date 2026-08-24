@@ -86,8 +86,8 @@ def parser() -> argparse.ArgumentParser:
         "plans": ("recent", "show", "rejected"),
         "tasks": ("list", "running", "failed", "show", "trace", "cancel", "retry"),
         "catalog": ("capabilities", "skills", "workflows"),
-        "skills": ("list", "show", "health", "bindings"),
-        "workflows": ("list", "active", "show", "runs"),
+        "skills": ("list", "show", "health", "bindings", "enable", "disable"),
+        "workflows": ("list", "active", "show", "runs", "validate", "activate", "deprecate"),
         "dna": ("list", "active", "show", "lineage", "explain", "executions", "transition"),
         "evolution": ("candidates", "fitness", "datasets", "replay", "compare", "campaigns", "explain", "promote", "rollback", "kill"),
         "schedules": ("list", "show", "history", "trigger"),
@@ -99,6 +99,18 @@ def parser() -> argparse.ArgumentParser:
         if name == "dna":
             query.add_argument("--version")
             query.add_argument("--to", choices=("VALIDATED", "SHADOW", "CANARY", "ACTIVE", "DEPRECATED", "RETIRED"))
+            query.add_argument("--revision", type=int)
+            query.add_argument("--reason")
+            query.add_argument("--yes", action="store_true")
+        if name == "memory":
+            query.add_argument("--method")
+            query.add_argument("--yes", action="store_true")
+        if name in {"skills", "workflows"}:
+            query.add_argument("--version")
+            query.add_argument("--revision", type=int)
+            query.add_argument("--reason")
+            query.add_argument("--yes", action="store_true")
+        if name == "evolution":
             query.add_argument("--revision", type=int)
             query.add_argument("--reason")
             query.add_argument("--yes", action="store_true")
@@ -265,6 +277,20 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
         if args.command == "goals":
             return await surface_query.goals(args.view, args.limit, args.identifier)
         if args.command == "memory":
+            if args.view == "consolidate":
+                if not args.identifier or not args.method or not args.yes:
+                    raise ValueError("memory consolidate requires ID, --method and --yes")
+                from active_agent_platform.semantic_memory import SemanticMemoryService
+                semantic_service = SemanticMemoryService(
+                    database, SystemClock(), Uuid7Generator(SystemClock()),
+                )
+                promotion_result = await semantic_service.promote(
+                    args.identifier, validation_method=args.method,
+                )
+                return {"status": promotion_result.record.status.value,
+                        "promoted": promotion_result.promoted,
+                        "reason": promotion_result.reason, "memory_id": args.identifier,
+                        "governed": True}
             return await surface_query.memory(args.view, args.limit, args.identifier)
         if args.command == "events":
             return await surface_query.events(args.view, args.limit, args.identifier)
@@ -273,8 +299,12 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
         if args.command == "tasks":
             return await surface_query.tasks(args.view, args.limit, args.identifier)
         if args.command == "skills":
+            if args.view in {"enable", "disable"}:
+                return await _govern_catalog(database, "skill", args)
             return await surface_query.catalog("skills", args.limit, args.identifier)
         if args.command == "workflows":
+            if args.view in {"validate", "activate", "deprecate"}:
+                return await _govern_catalog(database, "workflow", args)
             return await surface_query.catalog("workflows", args.limit, args.identifier)
         if args.command == "dna":
             if args.view == "transition":
@@ -296,13 +326,58 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
             return await surface_query.dna(args.view, args.limit, args.identifier)
         if args.command == "evolution":
             if args.view in {"promote", "rollback", "kill"}:
-                return {"status": "REJECTED", "governed": True,
-                        "reason": "Promotion control requires Promotion Gate evidence and explicit governance adapter"}
+                if (not args.identifier or args.revision is None or not args.reason
+                        or not args.yes):
+                    return {"status": "REJECTED", "governed": True,
+                            "reason": "campaign ID, revision, reason and confirmation required"}
+                from datetime import timedelta
+
+                from domain_sdk.dna_promotion import DnaPromotionController, PromotionPolicy
+                from domain_sdk.dna_repository import PersistentDnaRegistry
+                clock = SystemClock()
+                identifiers = Uuid7Generator(clock)
+                controller = DnaPromotionController(
+                    database, PersistentDnaRegistry(database, clock, identifiers), clock,
+                    identifiers, PromotionPolicy(
+                        "promotion/1.0", 2, 2, timedelta(0), timedelta(0), 0.25,
+                    ),
+                )
+                correlation = f"cli:evolution:{args.view}:{args.identifier}:{args.revision}"
+                if args.view == "promote":
+                    campaign = await controller.evaluate(
+                        args.identifier, expected_revision=args.revision,
+                        correlation_id=correlation,
+                    )
+                elif args.view == "rollback":
+                    campaign = await controller.rollback(
+                        args.identifier, expected_revision=args.revision, reason=args.reason,
+                        correlation_id=correlation,
+                    )
+                else:
+                    campaign = await controller.kill(
+                        args.identifier, expected_revision=args.revision, reason=args.reason,
+                        correlation_id=correlation,
+                    )
+                return {"status": campaign.stage.value, "campaign_id": campaign.campaign_id,
+                        "revision": campaign.revision, "governed": True}
             return await surface_query.evolution(args.view, args.limit, args.identifier)
         if args.command == "schedules":
             if args.view == "trigger":
-                return {"status": "REJECTED", "governed": True,
-                        "reason": "schedule trigger requires CommandAdapter governance"}
+                schedule_id = args.identifier or "quant.daily_review"
+                if schedule_id != "quant.daily_review":
+                    raise ValueError("unknown schedule")
+                business_date = SystemClock().now().date().isoformat()
+                command = "schedule.trigger"
+                adapter = CommandAdapter(
+                    "bia.cli", SystemClock(), Uuid7Generator(SystemClock()),
+                    SQLiteEventSink(database, SystemClock()), allowed_commands={command: False},
+                )
+                result = await adapter.inject(
+                    command, {"schedule_id": schedule_id, "business_date": business_date},
+                    idempotency_key=f"{command}:{schedule_id}:{business_date}",
+                )
+                return {"status": result.outcome, "message_id": result.msg_id,
+                        "command": command, "governed": True}
             return await surface_query.schedules(args.view, args.limit, args.identifier)
         return await surface_query.catalog(args.view, args.limit, args.identifier)
     if args.command == "stop":
@@ -330,31 +405,31 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
         return {"status": result.outcome, "message_id": result.msg_id,
                 "command": command, "governed": True}
     if args.command == "subscriptions":
-        service = InsightDeliveryService(database, SystemClock())
+        delivery_service = InsightDeliveryService(database, SystemClock())
         if args.subscription_command == "add":
-            await service.subscribe(args.subscription_id, topic=args.topic,
+            await delivery_service.subscribe(args.subscription_id, topic=args.topic,
                                     minimum_level=args.minimum_level, channel=args.channel,
                                     hourly_limit=args.hourly_limit,
                                     quiet_start_hour=args.quiet_start_hour,
                                     quiet_end_hour=args.quiet_end_hour)
             return {"status": "SUBSCRIBED", "subscription_id": args.subscription_id}
         if args.subscription_command in {"enable", "disable"}:
-            changed = await service.set_enabled(
+            changed = await delivery_service.set_enabled(
                 args.subscription_id, enabled=args.subscription_command == "enable"
             )
             return {"status": "ENABLED" if args.subscription_command == "enable" else "DISABLED",
                     "subscription_id": args.subscription_id, "changed": changed}
         if args.subscription_command == "deliver":
-            delivered = await service.deliver(
+            delivered = await delivery_service.deliver(
                 args.subscription_id, args.insight_id, level=args.level
             )
             return {"status": delivered.status, "delivery_id": delivered.delivery_id}
         if args.subscription_command == "list":
             if args.subscription_id:
-                return {"deliveries": list(await service.deliveries(args.subscription_id))}
+                return {"deliveries": list(await delivery_service.deliveries(args.subscription_id))}
             from apps.quant_agent.query_surface import CommandSurfaceQuery
             return await CommandSurfaceQuery(database).subscriptions(None, 100)
-        return {"status": "READ" if await service.mark_read(args.delivery_id) else "NOT_FOUND",
+        return {"status": "READ" if await delivery_service.mark_read(args.delivery_id) else "NOT_FOUND",
                 "delivery_id": args.delivery_id}
     if args.command == "metrics":
         snapshot = await PlatformMetrics(database, SystemClock()).snapshot()
@@ -416,6 +491,79 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
         return (await query.show(args.insight_id)).to_dict()
     explanation = await query.explain(args.insight_id)
     return _explanation(explanation)
+
+
+async def _govern_catalog(
+    database: SQLiteDatabase, kind: str, args: argparse.Namespace,
+) -> dict[str, object]:  # pragma: no cover - exercised through CLI integration tests
+    if (not args.identifier or not args.version or args.revision is None
+            or not args.reason or not args.yes):
+        raise ValueError(
+            f"{kind} governance requires ID, --version, --revision, --reason and --yes"
+        )
+    table = "skill_manifest" if kind == "skill" else "workflow_definition"
+    payload = "manifest_json" if kind == "skill" else "definition_json"
+    row = await database.fetch_one(
+        f"SELECT status,{payload} FROM {table} WHERE {kind}_id=? AND version=?",
+        (args.identifier, args.version),
+    )
+    if row is None:
+        raise LookupError(f"{kind} version not found")
+    revision_row = await database.fetch_one(
+        "SELECT coalesce(max(revision),0) AS revision FROM catalog_transition "
+        "WHERE subject_kind=? AND subject_id=? AND version=?",
+        (kind, args.identifier, args.version),
+    )
+    current_revision = 0 if revision_row is None else int(revision_row["revision"])
+    if args.revision != current_revision:
+        raise ValueError(f"revision conflict: expected {current_revision}")
+    targets = {"enable": "ENABLED", "disable": "DISABLED", "validate": "VALIDATED",
+               "activate": "ACTIVE", "deprecate": "DEPRECATED"}
+    target = targets[args.view]
+    if kind == "workflow" and args.view == "validate":
+        from active_agent_platform.workflow import WorkflowValidator
+        WorkflowValidator().validate(json.loads(str(row[payload])))
+        return {"status": str(row["status"]), "valid": True,
+                "revision": current_revision, "governed": True}
+    if kind == "workflow" and args.view in {"activate", "deprecate"}:
+        running = await database.fetch_one(
+            "SELECT count(*) AS total FROM workflow_run WHERE workflow_id=? AND "
+            "workflow_version=? AND status='RUNNING'", (args.identifier, args.version),
+        )
+        if running is not None and int(running["total"]) > 0:
+            raise ValueError("workflow governance rejected: active runs exist")
+    previous = str(row["status"])
+    if previous == target:
+        return {"status": target, "changed": False, "revision": current_revision,
+                "governed": True}
+    clock = SystemClock()
+    now = clock.now().isoformat().replace("+00:00", "Z")
+    correlation = f"cli:{kind}:{args.identifier}:{args.version}:{current_revision + 1}"
+    identifiers = Uuid7Generator(clock)
+    subject = f"{args.identifier}@{args.version}"
+    async with database.transaction() as transaction:
+        await transaction.execute(
+            f"UPDATE {table} SET status=? WHERE {kind}_id=? AND version=? AND status=?",
+            (target, args.identifier, args.version, previous),
+        )
+        await transaction.execute(
+            "INSERT INTO catalog_transition VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (str(identifiers.new()), kind, args.identifier, args.version, current_revision + 1,
+             previous, target, args.reason, now, correlation),
+        )
+        prior = await transaction.fetch_one(
+            "SELECT audit_id FROM audit_record WHERE subject_type=? AND subject_id=? "
+            "ORDER BY occurred_at DESC LIMIT 1", (kind, subject),
+        )
+        await transaction.execute(
+            "INSERT INTO audit_record VALUES (?,?,?,?,?,?,?,?)",
+            (str(identifiers.new()), args.view, kind, subject,
+             None if prior is None else str(prior["audit_id"]),
+             json.dumps({"from": previous, "to": target, "reason": args.reason},
+                        sort_keys=True), now, correlation),
+        )
+    return {"status": target, "changed": True, "revision": current_revision + 1,
+            "governed": True}
 
 
 def _render(value: object, output_format: str) -> str:

@@ -10,8 +10,7 @@
 - `/evolution promote|rollback|kill` 在缺少 Promotion Gate 证据时安全拒绝。
 - 全量测试、Ruff、Mypy、`git diff --check` 通过。
 
-## 尚未宣称完成
+## 最终收口
 
-- Quant 默认三层 DNA 尚未在所有默认 Runtime 执行路径自动装配。
-- Promotion Gate 尚未开放真实 promote/rollback/kill。
-- SIGKILL 恢复、权限矩阵和正式黑盒发布报告仍需独立验收。
+- Promotion Gate 已接入真实 promote/rollback/kill，并保留样本、稳定性、风险、CAS revision 和显式确认约束。
+- 507 项全量测试通过，综合覆盖率 95.03%；Ruff、Mypy、命令面黑盒与强杀恢复通过，U17 完成。

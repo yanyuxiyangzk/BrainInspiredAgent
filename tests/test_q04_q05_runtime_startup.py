@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
-from datetime import time
+from datetime import UTC, datetime, time
 from io import StringIO
 from pathlib import Path
 
 import pytest
 
+from active_agent_platform.foundation import FakeClock
 from apps.quant_agent.cli import EXIT_OK, EXIT_UNAVAILABLE, run
 from apps.quant_agent.runtime import DailyReviewSchedule, build_quant_runtime
 from apps.quant_agent.startup import StartupPathError, _prepare_directory, prepare_runtime_paths
@@ -15,14 +16,13 @@ from apps.quant_agent.startup import StartupPathError, _prepare_directory, prepa
 @pytest.mark.asyncio
 async def test_q04_scheduler_runs_daily_review_once_and_restart_is_stable(tmp_path: Path) -> None:
     path = tmp_path / "daily-runtime.db"
-    first = build_quant_runtime(path)
-    now = first.service._clock.now()
-    await first.database.close()
+    now = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
+    clock = FakeClock(now)
     schedule = DailyReviewSchedule(
         at=time(now.hour, now.minute, now.second),
         timezone="UTC", window_seconds=60, trading_days_only=False,
     )
-    components = build_quant_runtime(path, schedule=schedule)
+    components = build_quant_runtime(path, schedule=schedule, clock=clock)
     await components.database.initialize()
     await components.service.start()
     assert (await components.service._scheduler.tick()).triggered == 1
@@ -35,7 +35,7 @@ async def test_q04_scheduler_runs_daily_review_once_and_restart_is_stable(tmp_pa
     await components.service.stop()
     await components.database.close()
 
-    restarted = build_quant_runtime(path, schedule=schedule)
+    restarted = build_quant_runtime(path, schedule=schedule, clock=clock)
     await restarted.database.initialize()
     await restarted.service.start()
     assert (await restarted.service._scheduler.tick()).triggered == 0
