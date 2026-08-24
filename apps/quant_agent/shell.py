@@ -101,11 +101,11 @@ def _shell_key_bindings() -> KeyBindings:
     bindings = KeyBindings()
 
     @bindings.add("enter")
-    def _submit(event: object) -> None:  # type: ignore[no-untyped-def]
+    def _submit(event: object) -> None:
         event.current_buffer.validate_and_handle()  # type: ignore[attr-defined]
 
     @bindings.add("c-j")
-    def _insert_newline(event: object) -> None:  # type: ignore[no-untyped-def]
+    def _insert_newline(event: object) -> None:
         # ``prompt_toolkit``'s event exposes the current buffer; keeping this
         # binding local avoids changing the global editing behaviour.
         event.current_buffer.insert_text("\n")  # type: ignore[attr-defined]

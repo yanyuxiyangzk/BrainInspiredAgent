@@ -1,0 +1,31 @@
+{
+  "counts": {
+    "command_execution": 10,
+    "daily_review_run": 0,
+    "insight_delivery": 10,
+    "local_notification_delivery": 10,
+    "market_episode": 10,
+    "market_task": 10,
+    "market_workflow_run": 10
+  },
+  "dna_execution_contexts": 10,
+  "duplicate_side_effects": 0,
+  "errors": [],
+  "failed_commands": 0,
+  "finished_at": "2026-08-21T06:41:59.133637Z",
+  "gate": "U17",
+  "governance_rejections": [
+    "REJECTED",
+    "REJECTED",
+    "REJECTED"
+  ],
+  "query_business_facts_unchanged": true,
+  "query_commands": 11,
+  "query_failures": [],
+  "release_decision": "RELEASABLE",
+  "requested_commands": 10,
+  "started_at": "2026-08-21T06:41:54.492970Z",
+  "status": "PASSED",
+  "strong_kill_recovered": true,
+  "successful_commands": 10
+}

@@ -12,6 +12,7 @@ from typing import cast
 
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 from jsonschema.exceptions import ValidationError  # type: ignore[import-untyped]
+from referencing import Registry, Resource
 
 from active_agent_platform.planning import CandidatePlan
 from active_agent_platform.workflow import WorkflowDefinition, WorkflowRegistry, WorkflowStatus
@@ -52,7 +53,12 @@ class PlanValidator:
         self._registry = registry
         path = schema_path or _default_schema_path()
         schema = json.loads(path.read_text(encoding="utf-8"))
-        self._validator = Draft202012Validator(schema)
+        dna_path = path.parents[1] / "dna" / "dna-execution-context-1.0.schema.json"
+        dna_schema = json.loads(dna_path.read_text(encoding="utf-8"))
+        registry = Registry().with_resource(
+            str(dna_schema["$id"]), Resource.from_contents(dna_schema),
+        )
+        self._validator = Draft202012Validator(schema, registry=registry)
 
     def validate(self, document: Mapping[str, object], *, now: datetime) -> ValidatedPlan:
         try:

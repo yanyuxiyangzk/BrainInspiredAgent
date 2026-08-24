@@ -334,7 +334,7 @@ class QuantRuntimeService:
         )
         if task_row is not None:
             identity = await self._dna_context("market_summary")
-            await self._facade.record_dna_context(identity | {
+            await self._facade.record_dna_context(self._flat_dna_context(identity) | {
                 "plan_id": executed.planner.plan.plan_id,
                 "decision_id": executed.decision_id, "grant_id": executed.grant_id,
                 "task_id": str(task_row["task_id"]), "run_id": executed.execution.run_id,
@@ -417,7 +417,7 @@ class QuantRuntimeService:
             )
             if row is not None:
                 await self._facade.record_dna_context(
-                    (await self._dna_context("daily_review")) | dict(row)
+                    self._flat_dna_context(await self._dna_context("daily_review")) | dict(row)
                 )
 
     async def _dna_context(self, workflow_role: str) -> dict[str, object]:
@@ -443,11 +443,36 @@ class QuantRuntimeService:
         if row is None:
             raise RuntimeError(f"active three-layer DNA is unavailable for {workflow_role}")
         identity = dict(row)
-        digest_input = json.dumps(identity, sort_keys=True, separators=(",", ":"))
-        return identity | {
-            "workflow_role": workflow_role,
-            "source": "runtime.dna.active",
-            "context_digest": "sha256:" + hashlib.sha256(digest_input.encode()).hexdigest(),
+        context: dict[str, object] = {
+            "organization": {"dna_id": identity["organization_dna_id"],
+                             "version": identity["organization_version"],
+                             "content_digest": identity["organization_content_digest"]},
+            "organization_role": identity["organization_role"],
+            "agent": {"dna_id": identity["agent_dna_id"], "version": identity["agent_version"],
+                      "content_digest": identity["agent_content_digest"]},
+            "workflow": {"dna_id": identity["workflow_dna_id"],
+                         "version": identity["workflow_version"],
+                         "content_digest": identity["workflow_content_digest"]},
+            "responsibility": workflow_role,
+        }
+        digest_input = json.dumps(context, sort_keys=True, separators=(",", ":"))
+        return context | {"context_digest": "sha256:" + hashlib.sha256(digest_input.encode()).hexdigest()}
+
+    @staticmethod
+    def _flat_dna_context(context: Mapping[str, object]) -> dict[str, object]:
+        organization = cast(Mapping[str, object], context["organization"])
+        agent = cast(Mapping[str, object], context["agent"])
+        workflow = cast(Mapping[str, object], context["workflow"])
+        return {
+            "context_digest": context["context_digest"],
+            "organization_dna_id": organization["dna_id"],
+            "organization_version": organization["version"],
+            "organization_content_digest": organization["content_digest"],
+            "organization_role": context["organization_role"],
+            "agent_dna_id": agent["dna_id"], "agent_version": agent["version"],
+            "agent_content_digest": agent["content_digest"],
+            "workflow_dna_id": workflow["dna_id"], "workflow_version": workflow["version"],
+            "workflow_content_digest": workflow["content_digest"],
         }
 
     async def quiesce(self) -> None:

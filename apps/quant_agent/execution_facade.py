@@ -1,6 +1,9 @@
 """Small injectable execution boundary shared by quant applications."""
 from __future__ import annotations
 
+import hashlib
+import json
+
 from active_agent_platform.motor import MotorExec, MotorExecutionRequest
 from active_agent_platform.outcomes import OutcomeEvaluation, OutcomeEvaluator, OutcomeRequest
 from active_agent_platform.storage import SQLiteDatabase
@@ -32,6 +35,10 @@ class QuantExecutionFacade:
                     "workflow_version", "workflow_content_digest")
         if not all(key in context for key in required):
             return
+        execution_seed = {key: context[key] for key in required if key != "context_digest"}
+        context["context_digest"] = "sha256:" + hashlib.sha256(json.dumps(
+            execution_seed, sort_keys=True, separators=(",", ":"),
+        ).encode()).hexdigest()
         async with self.database.transaction() as transaction:
             values = tuple(context[key] for key in required)
             await transaction.execute(
