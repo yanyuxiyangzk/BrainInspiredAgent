@@ -1295,6 +1295,30 @@ _CATALOG_GOVERNANCE = Migration(
 )
 
 
+_DISCOVERY_LOOP = Migration(
+    "025_discovery_loop_checkpoint",
+    (
+        """
+        CREATE TABLE discovery_loop_checkpoint (
+            profile_id TEXT NOT NULL,
+            version TEXT NOT NULL,
+            iteration INTEGER NOT NULL CHECK (iteration >= 0),
+            status TEXT NOT NULL CHECK (status IN (
+                'RUNNING','PAUSED','COMPLETED','TERMINATED','REQUIRES_REVIEW'
+            )),
+            consecutive_failures INTEGER NOT NULL CHECK (consecutive_failures >= 0),
+            last_completed_at TEXT,
+            next_run_at TEXT NOT NULL,
+            state_digest TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (profile_id,version)
+        )
+        """,
+        "CREATE INDEX idx_discovery_loop_due ON discovery_loop_checkpoint(status,next_run_at)",
+    ),
+)
+
+
 DEFAULT_MIGRATIONS = (
     _INITIAL_SCHEMA,
     _INBOX_BUSINESS_DEDUP,
@@ -1320,4 +1344,5 @@ DEFAULT_MIGRATIONS = (
     _DNA_EXECUTION_IDENTITY,
     _COMMAND_EXECUTION_RUNTIME,
     _CATALOG_GOVERNANCE,
+    _DISCOVERY_LOOP,
 )

@@ -40,7 +40,7 @@ async def test_health_layers_and_diagnostic_snapshot(tmp_path: Path) -> None:
     assert health.brain_state is not None and health.brain_state["brain_mode"] == "SAFE"
     assert "outbox backlog" in " ".join(health.reasons)
     diagnostic = await service.diagnose(recent_limit=5)
-    assert len(diagnostic.migrations) == 24
+    assert len(diagnostic.migrations) == 25
     assert diagnostic.metrics is not None and diagnostic.metrics.queues["outbox_pending"] == 1
     assert diagnostic.overdue_tasks[0]["task_id"] == "t"
     assert diagnostic.recent_errors[0]["error_id"] == "stuck"

@@ -297,7 +297,7 @@ DNA 将现有 Workflow JSON 作为执行编码，由 Runtime 解释、Skill 插�
 
 | ID | 状态 | 负责人 | 依赖 | 估算 | 交付物 | 验收 |
 |---|---|---|---|---:|---|---|
-| L-001 | `⬜ 未开始` | BE | MVP 发布 | 3 | FactorDiscoveryLoop Profile、5 分钟触发、终止/暂停状态机 | checkpoint/恢复测试 |
+| L-001 | `✅ 已开发已测试` | BE | MVP 发布 | 3 | FactorDiscoveryLoop Profile、5 分钟触发契约、有限迭代、终止/暂停/恢复状态机和持久 checkpoint | checkpoint/恢复、失败阈值和边界测试通过 |
 | L-002 | `⬜ 未开始` | BE | L-001,C08,A05 | 3 | 原子 checkpoint、候选哈希、因子库 digest、恢复一致性 | 中断续跑测试 |
 | L-003 | `⬜ 未开始` | AI/BE | D03,C06 | 4 | 五类生成策略、配额、父本池、随机种子可复现 | 生成分布测试 |
 | L-004 | `⬜ 未开始` | AI | L-003 | 2 | 动量追踪、自适应步长和探索/利用预算调整 | 多轮回放测试 |

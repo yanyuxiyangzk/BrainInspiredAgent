@@ -106,6 +106,12 @@ from domain_sdk.experience_dataset import (
     ExperienceDatasetSpec,
     ExperienceSample,
 )
+from domain_sdk.factor_loop import (
+    FactorDiscoveryLoop,
+    FactorLoopCheckpoint,
+    FactorLoopProfile,
+    FactorLoopStatus,
+)
 from domain_sdk.organization_dna import (
     ArbitrationStrategy,
     DelegationStrategy,
@@ -180,6 +186,10 @@ __all__ = [
     "ExperienceDatasetSpec",
     "ExperienceSample",
     "ExplainRequest",
+    "FactorDiscoveryLoop",
+    "FactorLoopCheckpoint",
+    "FactorLoopProfile",
+    "FactorLoopStatus",
     "FaultScenario",
     "FitnessReadiness",
     "LoopProfile",
