@@ -72,7 +72,7 @@ from active_agent_platform.memory import (
 )
 from active_agent_platform.metrics import MetricsSnapshot, PlatformMetrics, prometheus
 from active_agent_platform.llm import (
-    ChatMessage, ChatModel, FakeChatModel, LlmError, LlmErrorCode,
+    ChatMessage, ChatModel, FakeChatModel, OpenAICompatibleModel, LlmError, LlmErrorCode,
     ModelCapabilities, ModelRequest, ModelResponse, StructuredChatModel,
 )
 from active_agent_platform.motor import (
