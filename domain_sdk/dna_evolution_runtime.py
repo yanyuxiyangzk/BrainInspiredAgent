@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from collections.abc import Mapping
 from typing import Protocol
+from active_agent_platform.storage import SQLiteDatabase
+from brain_kernel.ports import Clock
 
 class EvolutionStage(StrEnum):
     CANDIDATE="CANDIDATE"; VALIDATED="VALIDATED"; SHADOW="SHADOW"; CANARY="CANARY"; ACTIVE="ACTIVE"; ROLLED_BACK="ROLLED_BACK"
@@ -20,7 +22,7 @@ class ReplayResult:
 class CandidateGenerator(Protocol):
     async def generate_candidate(self, context: Mapping[str, object]) -> Mapping[str, object]: ...
 class DnaEvolutionRuntime:
-    def __init__(self) -> None: self.candidates={}; self.replays={}; self.audit=[]
+    def __init__(self, database: SQLiteDatabase | None = None, clock: Clock | None = None) -> None: self.candidates={}; self.replays={}; self.audit=[]; self.database=database; self.clock=clock
     async def propose(self, generator: CandidateGenerator, *, dna_id: str, version: str, context: Mapping[str, object], parent_digest: str | None = None) -> DnaCandidate:
         document=await generator.generate_candidate(context)
         if not isinstance(document, Mapping) or not document: raise ValueError("candidate must be a non-empty object")
@@ -43,3 +45,16 @@ class DnaEvolutionRuntime:
         if digest not in self.candidates: raise KeyError("unknown DNA candidate")
         return self.candidates[digest]
     def _record(self,a: str,c: DnaCandidate,r: ReplayResult|None)->None: self.audit.append({"action":a,"digest":c.content_digest,"stage":c.stage.value,"score":None if r is None else r.score})
+
+    async def persist(self, candidate: DnaCandidate, *, correlation_id: str = "evolution") -> None:
+        if self.database is None: return
+        now = self.clock.now().isoformat() if self.clock else "1970-01-01T00:00:00+00:00"
+        async with self.database.transaction() as tx:
+            await tx.execute("INSERT OR IGNORE INTO dna_evolution_candidate VALUES (?,?,?,?,?,?,?,?)", (candidate.content_digest,candidate.dna_id,candidate.version,json.dumps(candidate.document,sort_keys=True),candidate.parent_digest,candidate.stage.value,1,now))
+            await tx.execute("INSERT INTO dna_evolution_audit VALUES (?,?,?,?,?,?,?)", (hashlib.sha256((candidate.content_digest+candidate.stage.value+now).encode()).hexdigest(),candidate.content_digest,"PERSIST",candidate.stage.value,1,json.dumps({"correlation_id":correlation_id}),now))
+
+    async def persist_replay(self, result: ReplayResult) -> None:
+        if self.database is None: return
+        now = self.clock.now().isoformat() if self.clock else "1970-01-01T00:00:00+00:00"
+        async with self.database.transaction() as tx:
+            await tx.execute("INSERT OR REPLACE INTO dna_evolution_replay VALUES (?,?,?,?,?)", (result.candidate_digest,int(result.passed),result.score,json.dumps(result.evidence,sort_keys=True),now))

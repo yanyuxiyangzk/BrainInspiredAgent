@@ -1327,6 +1327,16 @@ _FACTOR_DISCOVERY_STATE = Migration(
     ),
 )
 
+_DNA_EVOLUTION_RUNTIME = Migration(
+    "027_dna_evolution_runtime",
+    (
+        "CREATE TABLE dna_evolution_candidate (content_digest TEXT PRIMARY KEY, dna_id TEXT NOT NULL, version TEXT NOT NULL, document_json TEXT NOT NULL, parent_digest TEXT, stage TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL)",
+        "CREATE TABLE dna_evolution_replay (content_digest TEXT PRIMARY KEY REFERENCES dna_evolution_candidate(content_digest), passed INTEGER NOT NULL, score REAL NOT NULL, evidence_json TEXT NOT NULL, created_at TEXT NOT NULL)",
+        "CREATE TABLE dna_evolution_audit (event_id TEXT PRIMARY KEY, content_digest TEXT NOT NULL, action TEXT NOT NULL, stage TEXT NOT NULL, revision INTEGER NOT NULL, detail_json TEXT NOT NULL, occurred_at TEXT NOT NULL)",
+        "CREATE INDEX idx_dna_evolution_stage ON dna_evolution_candidate(stage)",
+    ),
+)
+
 
 DEFAULT_MIGRATIONS = (
     _INITIAL_SCHEMA,
@@ -1355,4 +1365,5 @@ DEFAULT_MIGRATIONS = (
     _CATALOG_GOVERNANCE,
     _DISCOVERY_LOOP,
     _FACTOR_DISCOVERY_STATE,
+    _DNA_EVOLUTION_RUNTIME,
 )
