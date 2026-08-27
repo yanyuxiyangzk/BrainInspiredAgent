@@ -75,6 +75,7 @@ from active_agent_platform.llm import (
     ChatMessage, ChatModel, FakeChatModel, OpenAICompatibleModel, LlmError, LlmErrorCode,
     ModelCapabilities, ModelRequest, ModelResponse, StructuredChatModel,
 )
+from active_agent_platform.llm_runtime import Conversation, ConversationService, GovernedLlmClient, LlmBudget, LlmConfig, LlmUsage
 from active_agent_platform.motor import (
     MotorExec,
     MotorExecutionRequest,
