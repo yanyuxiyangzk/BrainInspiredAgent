@@ -106,6 +106,41 @@ class FactorDiscoveryLoop:
                                       current.next_run_at)
         return current
 
+    @staticmethod
+    def candidate_hash(candidate: object, *, algorithm_version: str = "1") -> str:
+        """Return a stable hash for a canonical candidate definition."""
+        payload = json.dumps(candidate, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return "sha256:" + hashlib.sha256((algorithm_version + "\0" + payload).encode()).hexdigest()
+
+    async def commit_iteration(self, candidates: list[object] = (), factors: list[object] = (), *,
+                               algorithm_version: str = "1", success: bool = True) -> FactorLoopCheckpoint:
+        """Atomically persist new candidates/factors and advance the checkpoint."""
+        current = await self.initialize()
+        now = self._clock.now().astimezone(UTC)
+        candidate_rows = [(self.candidate_hash(c, algorithm_version=algorithm_version),
+                           json.dumps(c, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+                           algorithm_version, now.isoformat()) for c in candidates]
+        factor_rows = [(self.candidate_hash(f, algorithm_version=algorithm_version),
+                        json.dumps(f, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+                        now.isoformat()) for f in factors]
+        failures = 0 if success else current.consecutive_failures + 1
+        status = FactorLoopStatus.REQUIRES_REVIEW if failures >= self.profile.max_consecutive_failures else FactorLoopStatus.RUNNING
+        iteration = current.iteration + 1
+        if iteration >= self.profile.max_iterations and status is FactorLoopStatus.RUNNING:
+            status = FactorLoopStatus.COMPLETED
+        state = {"candidates": sorted(r[0] for r in candidate_rows), "factors": sorted(r[0] for r in factor_rows)}
+        library_digest = "sha256:" + hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
+        async with self._database.transaction() as tx:
+            if candidate_rows:
+                await tx.executemany("INSERT OR IGNORE INTO factor_candidate VALUES (?,?,?,?)", candidate_rows)
+            if factor_rows:
+                await tx.executemany("INSERT OR IGNORE INTO factor_library VALUES (?,?,?,?)",
+                                     [(h, j, library_digest, created) for h, j, created in factor_rows])
+            await tx.execute("INSERT INTO discovery_loop_checkpoint VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(profile_id,version) DO UPDATE SET iteration=excluded.iteration,status=excluded.status,consecutive_failures=excluded.consecutive_failures,last_completed_at=excluded.last_completed_at,next_run_at=excluded.next_run_at,state_digest=excluded.state_digest,updated_at=excluded.updated_at",
+                             (self.profile.profile_id, self.profile.version, iteration, status.value, failures,
+                              now.isoformat(), (now + self.profile.interval).isoformat(), library_digest, now.isoformat()))
+        return FactorLoopCheckpoint(self.profile.profile_id, self.profile.version, iteration, status, failures, now, now + self.profile.interval, library_digest)
+
     async def _commit(self, iteration: int, status: FactorLoopStatus, failures: int,
                       completed: datetime | None, next_run: datetime) -> FactorLoopCheckpoint:
         state = {"profile_id": self.profile.profile_id, "version": self.profile.version,

@@ -1318,6 +1318,15 @@ _DISCOVERY_LOOP = Migration(
     ),
 )
 
+_FACTOR_DISCOVERY_STATE = Migration(
+    "026_factor_discovery_state",
+    (
+        """CREATE TABLE factor_candidate (candidate_hash TEXT PRIMARY KEY, candidate_json TEXT NOT NULL, algorithm_version TEXT NOT NULL, created_at TEXT NOT NULL)""",
+        """CREATE TABLE factor_library (factor_hash TEXT PRIMARY KEY, factor_json TEXT NOT NULL, library_digest TEXT NOT NULL, created_at TEXT NOT NULL)""",
+        "CREATE INDEX idx_factor_candidate_created ON factor_candidate(created_at)",
+    ),
+)
+
 
 DEFAULT_MIGRATIONS = (
     _INITIAL_SCHEMA,
@@ -1345,4 +1354,5 @@ DEFAULT_MIGRATIONS = (
     _COMMAND_EXECUTION_RUNTIME,
     _CATALOG_GOVERNANCE,
     _DISCOVERY_LOOP,
+    _FACTOR_DISCOVERY_STATE,
 )
