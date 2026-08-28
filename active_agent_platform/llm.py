@@ -154,3 +154,24 @@ class OpenAICompatibleModel:
         except json.JSONDecodeError as exc: raise LlmError(LlmErrorCode.INVALID_OUTPUT, "invalid JSON output") from exc
         if not isinstance(value, dict): raise LlmError(LlmErrorCode.INVALID_OUTPUT, "structured output must be an object")
         return value
+
+
+class AnthropicModel(OpenAICompatibleModel):
+    """Anthropic Messages API adapter with the provider-neutral contract."""
+    capabilities = ModelCapabilities(tool_calling=True)
+
+    async def generate(self, request: ModelRequest) -> ModelResponse:
+        system = "\n".join(m.content for m in request.messages if m.role == "system")
+        messages = [{"role": "user" if m.role == "tool" else m.role, "content": m.content}
+                    for m in request.messages if m.role != "system"]
+        payload: dict[str, object] = {"model": request.model, "max_tokens": 4096, "messages": messages}
+        if system: payload["system"] = system
+        body = json.dumps(payload).encode()
+        http_request = Request(self.base_url + "/messages", data=body, method="POST", headers={
+            "x-api-key": self.api_key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"})
+        raw = await asyncio.wait_for(asyncio.to_thread(self._read, http_request), request.timeout_seconds)
+        try:
+            document = json.loads(raw); content = document["content"][0]["text"]; usage = document.get("usage", {})
+            return ModelResponse(str(content), str(document.get("model", request.model)), self.provider,
+                                 str(document.get("stop_reason", "end_turn")), int(usage.get("input_tokens", 0)), int(usage.get("output_tokens", 0)))
+        except (KeyError, IndexError, TypeError, ValueError) as exc: raise LlmError(LlmErrorCode.INVALID_OUTPUT, "invalid model response") from exc

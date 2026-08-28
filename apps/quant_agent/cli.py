@@ -76,6 +76,7 @@ def parser() -> argparse.ArgumentParser:
                          default="FIRE_ONCE")
     runtime.add_argument("--daily-review-all-days", action="store_true")
     commands.add_parser("status", help="show durable platform status")
+    commands.add_parser("model", help="show configured LLM endpoint and model")
     for name, choices in {
         "system": ("status", "health", "diagnose", "metrics", "logs", "migrations"),
         "brain": ("state", "areas", "cycles"),
@@ -446,6 +447,13 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
             row = await database.fetch_one(f"SELECT count(*) AS count FROM {table}")
             counts[table] = 0 if row is None else int(row["count"])
         return {"status": "HEALTHY", "ready": True, "facts": counts}
+    if args.command == "model":
+        from active_agent_platform.foundation import Settings
+        settings = Settings.from_env()
+        return {"configured": bool(settings.model_url and settings.model_name),
+                "provider": settings.model_provider,
+                "url": settings.model_url or None, "model": settings.model_name or None,
+                "api_key_configured": bool(settings.model_api_key)}
     if args.command == "loop":
         return {
             "status": "UNKNOWN",
@@ -700,7 +708,7 @@ def main() -> int:
     commands = {
         "shell", "start", "run", "status", "system", "brain", "loop", "events", "plans",
         "tasks", "catalog", "skills", "workflows", "health", "diagnose", "metrics", "stop",
-        "inject", "market", "subscriptions", "replay", "log", "commands", "insights",
+        "inject", "market", "subscriptions", "replay", "log", "commands", "insights", "model",
     }
     if not any(value in commands for value in arguments):
         arguments.append("shell")

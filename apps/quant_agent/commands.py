@@ -35,6 +35,7 @@ COMMAND_SPECS = (
     CommandSpec("/subscriptions", "inspect subscription preferences", "/subscriptions [list|enable|disable]"),
     CommandSpec("/deliveries", "list local deliveries", "/deliveries [USER]"),
     CommandSpec("/health", "check database liveness and readiness", "/health", ("health",)),
+    CommandSpec("/model", "show configured LLM endpoint and model", "/model", ("model",)),
     CommandSpec("/status", "show durable platform status", "/status", ("status",)),
     CommandSpec("/diagnose", "show a diagnostic snapshot", "/diagnose", ("diagnose",)),
     CommandSpec("/loop", "inspect the active LoopEngine supervisor", "/loop [status|services|lag|checkpoints]"),

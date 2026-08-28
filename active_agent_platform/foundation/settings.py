@@ -1,6 +1,7 @@
 """Validated, immutable platform settings."""
 
 import os
+from pathlib import Path
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -13,6 +14,10 @@ class Settings:
     environment: str = "development"
     log_level: LogLevel = LogLevel.INFO
     shutdown_timeout_seconds: float = 30.0
+    model_url: str = ""
+    model_name: str = ""
+    model_api_key: str = ""
+    model_provider: str = "openai-compatible"
 
     def __post_init__(self) -> None:
         if not self.service_name.strip():
@@ -24,7 +29,23 @@ class Settings:
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
-        values = os.environ if env is None else env
+        if env is None:
+            loaded: dict[str, str] = {}
+            # Load the nearest project .env without overriding exported variables.
+            for candidate in (Path.cwd() / ".env", Path(__file__).resolve().parents[2] / ".env"):
+                if candidate.is_file():
+                    for line in candidate.read_text(encoding="utf-8").splitlines():
+                        line = line.strip()
+                        if not line or line.startswith("#") or "=" not in line:
+                            continue
+                        key, value = line.split("=", 1)
+                        key, value = key.strip(), value.strip().strip('"').strip("'")
+                        if key and key not in os.environ:
+                            loaded[key] = value
+            loaded.update(os.environ)
+            values = loaded
+        else:
+            values = env
         level_name = values.get("BIA_LOG_LEVEL", "INFO").upper()
         try:
             level = LogLevel[level_name]
@@ -39,4 +60,8 @@ class Settings:
             environment=values.get("BIA_ENVIRONMENT", "development"),
             log_level=level,
             shutdown_timeout_seconds=timeout,
+            model_url=values.get("BIA_MODEL_URL", ""),
+            model_name=values.get("BIA_MODEL_NAME", ""),
+            model_api_key=values.get("BIA_MODEL_API_KEY", ""),
+            model_provider=values.get("BIA_MODEL_PROVIDER", "openai-compatible"),
         )
