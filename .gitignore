@@ -9,11 +9,14 @@ __pycache__/
 .coverage.*
 dist/
 build/
+docs-site/app.bundle.js
 *.egg-info/
 *.db
 *.db-wal
 *.db-shm
+*.db-journal
 *.log
+logs/
 .env
 .env.*
 !.env.example
