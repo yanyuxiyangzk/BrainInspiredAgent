@@ -26,7 +26,7 @@ from apps.quant_agent.chat import (
     ChatSession,
     build_chat_client,
     describe_llm_error,
-    format_reply,
+    format_footer,
 )
 from apps.quant_agent.commands import COMMAND_SPECS, COMMANDS, command_help
 from apps.quant_agent.model_picker import OLLAMA_PROVIDER, configure_model
@@ -234,15 +234,24 @@ async def interactive(
                 stderr.write("还没有配置模型：先输入 /model 选择模型，再直接输入文字对话。\n")
                 return
             chat = ChatSession(client, label=model_state["label"])
+        emitted = {"chars": 0}
+
+        def print_delta(delta: str) -> None:
+            emitted["chars"] += len(delta)
+            stdout.write(delta)
+            stdout.flush()
+
         started = time.monotonic()
         try:
-            response = await chat.send(text)
+            response = await chat.send(text, on_delta=print_delta)
         except LlmError as error:
+            if emitted["chars"]:
+                stdout.write("\n")
             stderr.write(describe_llm_error(error) + "\n")
             return
         tty = live_session is not None
         width = shutil.get_terminal_size(fallback=(80, 24)).columns if tty else 0
-        stdout.write(format_reply(response, time.monotonic() - started, width, color=tty))
+        stdout.write("\n" + format_footer(response, time.monotonic() - started, width, color=tty))
     try:
         while True:
             if live_session is not None:  # pragma: no cover - real TTY integration

@@ -1,9 +1,20 @@
 """Governed runtime services around the provider-neutral LLM contracts."""
 from __future__ import annotations
+
 import asyncio
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
-from collections.abc import Mapping
-from .llm import ChatMessage, ChatModel, ModelRequest, ModelResponse, LlmError, LlmErrorCode
+
+from .llm import (
+    ChatMessage,
+    ChatModel,
+    LlmError,
+    LlmErrorCode,
+    ModelRequest,
+    ModelResponse,
+    StreamUsage,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class LlmConfig:
@@ -51,12 +62,30 @@ class GovernedLlmClient:
                 await asyncio.sleep(min(2 ** attempt, 8))
         raise LlmError(LlmErrorCode.UNAVAILABLE, str(last))
 
+    async def stream_generate(self, request: ModelRequest) -> AsyncIterator[StreamUsage | str]:
+        """Stream with budget accounting; retries only while nothing was emitted."""
+        self.budget.reserve(1)
+        attempt = 0
+        while True:
+            emitted = False
+            try:
+                async for chunk in self.model.stream_generate(request):
+                    emitted = True
+                    yield chunk
+                return
+            except LlmError as exc:
+                retryable = exc.code in {LlmErrorCode.UNAVAILABLE, LlmErrorCode.RATE_LIMITED, LlmErrorCode.TIMEOUT}
+                if emitted or not retryable or attempt >= self.config.max_retries:
+                    raise
+                attempt += 1
+                await asyncio.sleep(min(2 ** (attempt - 1), 8))
+
 @dataclass(frozen=True, slots=True)
 class Conversation:
     conversation_id: str
     messages: tuple[ChatMessage, ...] = ()
     metadata: Mapping[str, str] = field(default_factory=dict)
-    def append(self, *messages: ChatMessage) -> "Conversation":
+    def append(self, *messages: ChatMessage) -> Conversation:
         return Conversation(self.conversation_id, self.messages + tuple(messages), self.metadata)
 
 class ConversationService:
@@ -67,5 +96,29 @@ class ConversationService:
         messages = session.messages + ((ChatMessage("system", system),) if system and not session.messages else ()) + (ChatMessage("user", content),)
         request = ModelRequest(messages, self.client.config.provider, self.client.config.model, correlation_id, timeout_seconds=self.client.config.timeout_seconds)
         response = await self.client.generate(request)
+        self._sessions[conversation_id] = Conversation(conversation_id, messages + (ChatMessage("assistant", response.content),), session.metadata)
+        return response
+
+    async def send_streaming(
+        self, conversation_id: str, content: str, *, correlation_id: str,
+        system: str | None = None, on_delta: Callable[[str], None] | None = None,
+    ) -> ModelResponse:
+        """Stream a reply, forward deltas to ``on_delta``, and keep context."""
+        session = self.get(conversation_id)
+        messages = session.messages + ((ChatMessage("system", system),) if system and not session.messages else ()) + (ChatMessage("user", content),)
+        request = ModelRequest(messages, self.client.config.provider, self.client.config.model, correlation_id, timeout_seconds=self.client.config.timeout_seconds)
+        parts: list[str] = []
+        input_tokens = output_tokens = 0
+        async for chunk in self.client.stream_generate(request):
+            if isinstance(chunk, StreamUsage):
+                input_tokens += chunk.input_tokens
+                output_tokens += chunk.output_tokens
+            else:
+                parts.append(chunk)
+                if on_delta is not None:
+                    on_delta(chunk)
+        response = ModelResponse("".join(parts), self.client.config.model, self.client.config.provider,
+                                 "stop", input_tokens, output_tokens)
+        self.client.usage.record(response)
         self._sessions[conversation_id] = Conversation(conversation_id, messages + (ChatMessage("assistant", response.content),), session.metadata)
         return response

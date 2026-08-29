@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import io
+from urllib.error import HTTPError
+
 import pytest
 
+from active_agent_platform import llm as llm_module
 from active_agent_platform.foundation import Settings
 from active_agent_platform.llm import (
     AnthropicModel,
+    ChatMessage,
     FakeChatModel,
     LlmError,
     LlmErrorCode,
+    ModelRequest,
     ModelResponse,
     OpenAICompatibleModel,
+    StreamUsage,
 )
 from active_agent_platform.llm_runtime import GovernedLlmClient, LlmConfig
 from apps.quant_agent.chat import (
@@ -18,6 +25,7 @@ from apps.quant_agent.chat import (
     ChatSession,
     build_chat_client,
     describe_llm_error,
+    format_footer,
     format_reply,
 )
 
@@ -81,6 +89,18 @@ def test_format_reply_includes_usage_footer() -> None:
     assert "输入 12 / 输出 34 tokens" in text and "1.2s" in text
 
 
+def test_format_footer_omits_tokens_when_absent() -> None:
+    with_tokens = format_footer(
+        ModelResponse("内容", "glm-4-flash", "glm", "stop", 12, 34), 1.2,
+    )
+    without_tokens = format_footer(
+        ModelResponse("内容", "glm-4-flash", "glm", "stop", 0, 0), 1.2,
+    )
+    assert with_tokens.startswith("— glm-4-flash · 输入 12 / 输出 34 tokens · 1.2s\n")
+    assert without_tokens == "— glm-4-flash · 1.2s\n"
+    assert "tokens" not in without_tokens
+
+
 def test_format_reply_right_aligns_footer_in_tty() -> None:
     from apps.quant_agent.chat import _display_width
 
@@ -101,3 +121,110 @@ def test_describe_llm_error_maps_guidance() -> None:
         LlmError(LlmErrorCode.UNAVAILABLE, "model provider returned HTTP 400"),
     )
     assert unavailable.startswith("模型服务暂不可用") and "HTTP 400" in unavailable
+
+
+class _FakeStreamResponse:
+    def __init__(self, data: bytes) -> None:
+        self._buffer = io.BytesIO(data)
+        self.closed = False
+
+    def readline(self) -> bytes:
+        return self._buffer.readline()
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _stream_request() -> ModelRequest:
+    return ModelRequest(
+        messages=(ChatMessage("user", "hi"),),
+        provider="glm", model="m", correlation_id="c",
+    )
+
+
+@pytest.mark.asyncio
+async def test_chat_session_streams_through_on_delta() -> None:
+    model = FakeChatModel(["这是一段足够长的回复"])
+    deltas: list[str] = []
+    session = ChatSession(GovernedLlmClient(model, _config()), label="x")
+    response = await session.send("你好", on_delta=deltas.append)
+    assert "".join(deltas) == "这是一段足够长的回复"
+    assert len(deltas) > 1
+    assert response.output_tokens == len("这是一段足够长的回复")
+
+
+@pytest.mark.asyncio
+async def test_iter_sse_data_parses_data_lines() -> None:
+    stream = io.BytesIO(b'data: {"a":1}\n\n: keepalive\ndata: [DONE]\n')
+    chunks = [data async for data in llm_module._iter_sse_data(stream)]
+    assert chunks == ['{"a":1}', "[DONE]"]
+
+
+@pytest.mark.asyncio
+async def test_openai_stream_yields_deltas_and_usage(monkeypatch: pytest.MonkeyPatch) -> None:
+    body = (
+        b'data: {"choices":[{"delta":{"content":"\xe4\xbd\xa0"}}]}\n'
+        b"data: {\"choices\":[{\"delta\":{\"content\":\"\xe5\xa5\xbd\"}}],"
+        b'"usage":{"prompt_tokens":3,"completion_tokens":5}}\n'
+        b"data: [DONE]\n"
+    )
+    opened: list[object] = []
+    holder: list[_FakeStreamResponse] = []
+
+    def fake_urlopen(request: object, timeout: float = 60) -> _FakeStreamResponse:
+        del timeout
+        opened.append(request)
+        response = _FakeStreamResponse(body)
+        holder.append(response)
+        return response
+
+    monkeypatch.setattr(llm_module, "urlopen", fake_urlopen)
+    model = OpenAICompatibleModel(base_url="https://x/v1", api_key="k", default_model="m")
+    chunks = [chunk async for chunk in model.stream_generate(_stream_request())]
+    assert chunks == ["你", "好", StreamUsage(3, 5)]
+    assert opened and "chat/completions" in str(getattr(opened[0], "full_url", ""))
+    assert holder[0].closed
+
+
+@pytest.mark.asyncio
+async def test_openai_stream_maps_http_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_urlopen(request: object, timeout: float = 60) -> _FakeStreamResponse:
+        del request, timeout
+        raise HTTPError(
+            "https://x/v1/chat/completions", 400, "Bad Request", None,
+            io.BytesIO(b'{"error":{"message":"bad"}}'),
+        )
+
+    monkeypatch.setattr(llm_module, "urlopen", fake_urlopen)
+    model = OpenAICompatibleModel(base_url="https://x/v1", api_key="k", default_model="m")
+    with pytest.raises(LlmError) as info:
+        async for _ in model.stream_generate(_stream_request()):
+            pass
+    assert "HTTP 400" in str(info.value) and "bad" in str(info.value)
+
+
+@pytest.mark.asyncio
+async def test_anthropic_stream_parses_events(monkeypatch: pytest.MonkeyPatch) -> None:
+    body = (
+        b'event: message_start\n'
+        b'data: {"type":"message_start","message":{"usage":{"input_tokens":7}}}\n'
+        b'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}\n'
+        b'data: {"type":"message_delta","usage":{"output_tokens":2}}\n'
+        b'data: {"type":"message_stop"}\n'
+    )
+    monkeypatch.setattr(
+        llm_module, "urlopen",
+        lambda request, timeout=60: _FakeStreamResponse(body),
+    )
+    model = AnthropicModel(base_url="https://x", api_key="k", default_model="m")
+    chunks = [chunk async for chunk in model.stream_generate(_stream_request())]
+    assert chunks == [StreamUsage(7, 0), "hi", StreamUsage(0, 2)]
+
+
+@pytest.mark.asyncio
+async def test_governed_stream_retries_before_first_delta() -> None:
+    model = FakeChatModel([LlmError(LlmErrorCode.UNAVAILABLE, "flaky"), "恢复的回复"])
+    client = GovernedLlmClient(model, _config())
+    chunks = [chunk async for chunk in client.stream_generate(_stream_request())]
+    text = "".join(chunk for chunk in chunks if isinstance(chunk, str))
+    assert text == "恢复的回复" and len(model.requests) == 2

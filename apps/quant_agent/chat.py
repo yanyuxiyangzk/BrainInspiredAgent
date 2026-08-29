@@ -7,6 +7,7 @@ turns get retries, token budgeting and multi-turn context for free.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from unicodedata import east_asian_width
 from uuid import uuid4
 
@@ -71,10 +72,13 @@ class ChatSession:
     def clear(self) -> None:
         self.service = ConversationService(self.client)
 
-    async def send(self, content: str) -> ModelResponse:
-        return await self.service.send(
+    async def send(
+        self, content: str, on_delta: Callable[[str], None] | None = None,
+    ) -> ModelResponse:
+        """Send one turn; when ``on_delta`` is given the reply streams through it."""
+        return await self.service.send_streaming(
             CHAT_CONVERSATION_ID, content,
-            correlation_id=uuid4().hex[:12], system=self.system,
+            correlation_id=uuid4().hex[:12], system=self.system, on_delta=on_delta,
         )
 
 
@@ -98,20 +102,23 @@ def _display_width(text: str) -> int:
     return sum(2 if east_asian_width(char) in {"F", "W"} else 1 for char in text)
 
 
-def format_reply(
+def format_footer(
     response: ModelResponse, seconds: float, width: int = 0, *, color: bool = False,
 ) -> str:
-    """Render an assistant reply plus its usage footer.
-
-    With ``width`` set (TTY mode) the footer is right-aligned and dimmed so it
-    reads as a quiet annotation instead of a line of conversation.
-    """
-    footer = (f"— {response.model} · 输入 {response.input_tokens}"
-              f" / 输出 {response.output_tokens} tokens · {seconds:.1f}s")
-    body = f"{response.content}\n"
+    """Render the usage footer; right-aligned and dimmed in TTY mode."""
+    stats = (f"输入 {response.input_tokens} / 输出 {response.output_tokens} tokens · "
+             if response.input_tokens or response.output_tokens else "")
+    footer = f"— {response.model} · {stats}{seconds:.1f}s"
     if width <= 0:
-        return body + footer + "\n"
+        return footer + "\n"
     pad = " " * max(1, width - _display_width(footer) - 1)
     if color:
         footer = f"\x1b[2m{footer}\x1b[0m"
-    return f"{body}{pad}{footer}\n"
+    return f"{pad}{footer}\n"
+
+
+def format_reply(
+    response: ModelResponse, seconds: float, width: int = 0, *, color: bool = False,
+) -> str:
+    """Render a whole reply (content plus footer) for non-streaming callers."""
+    return f"{response.content}\n" + format_footer(response, seconds, width, color=color)
