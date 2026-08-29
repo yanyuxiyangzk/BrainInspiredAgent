@@ -63,6 +63,37 @@ def test_completion_menu_is_anchored_under_slash() -> None:
     assert all(not item.xcursor and item.left == 4 for item in floats[:2])
 
 
+def test_welcome_panel_reflects_model_state() -> None:
+    from active_agent_platform.foundation import Settings
+    from apps.quant_agent.shell import welcome_panel
+
+    assert "未配置 · 输入 /model 选择模型" in welcome_panel(Settings())
+    configured = welcome_panel(Settings(
+        model_provider="glm",
+        model_url="https://open.bigmodel.cn/api/paas/v4",
+        model_name="glm-4-flash",
+        model_api_key="sk-x",
+    ))
+    assert "glm-4-flash · glm · 已配置 ✓" in configured
+    assert "/help 命令总览 · /model 切换模型" in configured
+    assert "缺少 API Key" in welcome_panel(Settings(model_url="https://x/v1", model_name="m"))
+
+
+def test_model_label_summarizes_state() -> None:
+    from active_agent_platform.foundation import Settings
+    from apps.quant_agent.shell import model_label
+
+    assert model_label(Settings()) == "未配置"
+    assert model_label(Settings(model_url="https://x/v1", model_name="m")) == "m · 缺 Key"
+    assert model_label(Settings(
+        model_provider="glm", model_url="https://x/v1",
+        model_name="glm-4-flash", model_api_key="k",
+    )) == "glm-4-flash · glm ✓"
+    assert model_label(Settings(
+        model_provider="ollama", model_url="http://localhost:11434/v1", model_name="llama3.2",
+    )) == "llama3.2 · ollama ✓"
+
+
 @pytest.mark.asyncio
 async def test_interactive_shell_starts_help_and_stops(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
@@ -89,7 +120,7 @@ async def test_interactive_shell_starts_help_and_stops(
     assert "╭───────╮     ╭───────╮" in output and "COGNITIVE AGENT" in output
     assert "╭──╮ ╷ ╭──╮" in output and "├──┤ │ ├──┤" in output
     assert output.count("●") >= 18 and "○" not in output and "🧠" not in output
-    assert "BIA terminal ready" in output
+    assert "输入 /model 选择模型" in output and "/model 切换模型" in output
     assert "/market" in output
     assert "LoopEngine HEALTHY" in output and "quant_runtime" in output
     assert "commands=0 outbox=0" in output and "No schedule checkpoints" in output
@@ -162,6 +193,74 @@ async def test_shell_reports_unknown_help_and_lists_checkpoint(tmp_path: Path) -
     assert "daily 2026-08-20 FIRED" in stdout.getvalue()
 
 
+@pytest.mark.asyncio
+async def test_shell_plain_text_chats_with_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from active_agent_platform.llm import FakeChatModel
+    from active_agent_platform.llm_runtime import GovernedLlmClient, LlmConfig
+
+    def fake_client(settings: object) -> GovernedLlmClient:
+        del settings
+        return GovernedLlmClient(
+            FakeChatModel(
+                ["你好，我是测试回复。", "第二条回复。"],
+                provider="glm", model="glm-4-flash",
+            ),
+            LlmConfig(provider="glm", model="glm-4-flash", api_key_ref="test",
+                      timeout_seconds=5, daily_token_budget=1000),
+        )
+
+    monkeypatch.setattr("apps.quant_agent.shell.build_chat_client", fake_client)
+    stdin = StringIO("你好\n/clear\n再来一条\n/exit\n")
+    stdout, stderr = StringIO(), StringIO()
+    code = await run(
+        ("--database", str(tmp_path / "bia.db"), "shell"), stdout, stderr, stdin,
+    )
+    assert code == 0 and not stderr.getvalue()
+    output = stdout.getvalue()
+    assert "你好，我是测试回复。" in output and "第二条回复。" in output
+    assert "助手>" not in output
+    assert "— glm-4-flash" in output and "已清空对话上下文" in output
+
+
+@pytest.mark.asyncio
+async def test_shell_chat_without_model_guides_to_setup(tmp_path: Path) -> None:
+    stdin = StringIO("你好\n/exit\n")
+    stdout, stderr = StringIO(), StringIO()
+    code = await run(
+        ("--database", str(tmp_path / "bia.db"), "shell"), stdout, stderr, stdin,
+    )
+    assert code == 0
+    assert "还没有配置模型" in stderr.getvalue()
+    assert "Unknown command" not in stderr.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_shell_chat_maps_llm_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from active_agent_platform.llm import FakeChatModel, LlmError, LlmErrorCode
+    from active_agent_platform.llm_runtime import GovernedLlmClient, LlmConfig
+
+    def failing_client(settings: object) -> GovernedLlmClient:
+        del settings
+        return GovernedLlmClient(
+            FakeChatModel([LlmError(LlmErrorCode.AUTHENTICATION, "bad key")]),
+            LlmConfig(provider="glm", model="glm-4-flash", api_key_ref="test",
+                      timeout_seconds=5, daily_token_budget=1000),
+        )
+
+    monkeypatch.setattr("apps.quant_agent.shell.build_chat_client", failing_client)
+    stdin = StringIO("你好\n/exit\n")
+    stdout, stderr = StringIO(), StringIO()
+    code = await run(
+        ("--database", str(tmp_path / "bia.db"), "shell"), stdout, stderr, stdin,
+    )
+    assert code == 0
+    assert "模型认证失败" in stderr.getvalue() and "/model" in stderr.getvalue()
+
+
 def test_bare_main_enters_shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import sys
 
@@ -171,7 +270,7 @@ def test_bare_main_enters_shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(sys, "stdout", stdout)
     monkeypatch.setattr(sys, "stderr", stderr)
     assert main() == 0
-    assert "BIA terminal ready" in stdout.getvalue()
+    assert "输入 /model 选择模型" in stdout.getvalue()
     assert not stderr.getvalue()
 
 
@@ -191,3 +290,21 @@ def test_main_handles_ctrl_c_without_traceback(monkeypatch: pytest.MonkeyPatch) 
     assert main() == 130
     assert "BIA terminal stopped" in stdout.getvalue()
     assert not stderr.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_shell_model_command_persists_configuration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    stdin = StringIO("/model\n1\n1\n\nsk-shell\n/exit\n")
+    stdout, stderr = StringIO(), StringIO()
+    code = await run(
+        ("--database", str(tmp_path / "bia.db"), "shell"), stdout, stderr, stdin,
+    )
+    assert code == 0
+    output = stdout.getvalue()
+    assert "当前模型" in output and "选择 Provider" in output and "✓ 模型配置已保存" in output
+    env = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "BIA_MODEL_PROVIDER=glm" in env and "BIA_MODEL_API_KEY=sk-shell" in env
+    assert "BIA_MODEL_NAME=glm-4-flash" in env

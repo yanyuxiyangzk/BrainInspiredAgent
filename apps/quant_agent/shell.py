@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import shlex
+import shutil
+import time
 from io import StringIO
 from pathlib import Path
 from typing import TextIO, cast
@@ -12,12 +13,22 @@ from typing import TextIO, cast
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
+from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import Float
 from prompt_toolkit.layout.controls import BufferControl
 from prompt_toolkit.styles import Style
 
+from active_agent_platform.foundation import Settings
+from active_agent_platform.llm import LlmError
+from apps.quant_agent.chat import (
+    ChatSession,
+    build_chat_client,
+    describe_llm_error,
+    format_reply,
+)
 from apps.quant_agent.commands import COMMAND_SPECS, COMMANDS, command_help
+from apps.quant_agent.model_picker import OLLAMA_PROVIDER, configure_model
 
 HELP = command_help()
 
@@ -42,8 +53,7 @@ BANNER = r"""
                      ╰─────────┴─────────╯
                          COGNITIVE AGENT
                   类脑 Agent · Cognitive Runtime
-             感知 · 记忆 · 推理 · 规划 · 执行 · 复盘
-        欢迎进入 BIA 类脑智能终端，输入 /help 开始探索
+          感知 · 记忆 · 推理 · 规划 · 执行 · 复盘
 """
 
 SHELL_STYLE = Style.from_dict({
@@ -54,6 +64,9 @@ SHELL_STYLE = Style.from_dict({
     "completion-menu.meta.completion.current": "bg:ansidefault #38bdf8 bold",
     "scrollbar.background": "bg:ansidefault",
     "scrollbar.button": "bg:ansidefault #38bdf8",
+    "bottom-toolbar": "bg:ansidefault",
+    "toolbar-label": "#7a828a",
+    "toolbar-model": "#7dd3fc bold",
 })
 
 
@@ -71,6 +84,34 @@ class SlashCompleter(Completer):
                     spec.name, start_position=-len(text), display=spec.name,
                     display_meta=spec.summary,
                 )
+
+
+def model_label(settings: Settings) -> str:
+    """Compact model status for the input toolbar."""
+    key_ready = bool(settings.model_api_key) or settings.model_provider == OLLAMA_PROVIDER
+    if settings.model_url and settings.model_name and key_ready:
+        return f"{settings.model_name} · {settings.model_provider} ✓"
+    if settings.model_name or settings.model_url:
+        return f"{settings.model_name or settings.model_url} · 缺 Key"
+    return "未配置"
+
+
+def welcome_panel(settings: Settings) -> str:
+    """Quick-start panel under the banner: current model state and shortcuts."""
+    key_ready = bool(settings.model_api_key) or settings.model_provider == OLLAMA_PROVIDER
+    if settings.model_url and settings.model_name and key_ready:
+        model_line = f"{settings.model_name} · {settings.model_provider} · 已配置 ✓"
+    elif settings.model_name or settings.model_url:
+        model_line = f"{settings.model_name or settings.model_url} · 缺少 API Key，输入 /model 补充"
+    else:
+        model_line = "未配置 · 输入 /model 选择模型"
+    rule = "        " + "─" * 60
+    return "\n".join([
+        rule,
+        f"          模型   {model_line}",
+        "          提示   直接输入与模型对话 · /help 命令总览 · /model 切换模型 · /clear 清空 · Ctrl+J 换行",
+        rule,
+    ]) + "\n"
 
 
 def _align_completion_menu(session: PromptSession[str]) -> None:
@@ -143,28 +184,58 @@ async def interactive(
 
     serving = asyncio.create_task(components.engine.run(), name="bia-loop-engine")
     await components.engine.wait_started()
+    settings = Settings.from_env()
+    model_state = {"label": model_label(settings)}
     live_session: PromptSession[str] | None = None
     if stdin.isatty() and stdout.isatty():  # pragma: no cover - real TTY integration
+        def toolbar() -> StyleAndTextTuples:
+            fragments: StyleAndTextTuples = [
+                ("class:toolbar-label", " 模型 "),
+                ("class:toolbar-model", model_state["label"]),
+            ]
+            return fragments
+
         live_session = PromptSession(
             completer=SlashCompleter(), complete_while_typing=True,
             complete_in_thread=False, style=SHELL_STYLE,
             include_default_pygments_style=False,
             multiline=True,
             key_bindings=_shell_key_bindings(),
+            bottom_toolbar=toolbar,
         )
         _align_completion_menu(live_session)
     stdout.write(BANNER)
-    stdout.write(f"BIA terminal ready · {database_path.resolve()}\n")
-    stdout.write(
-        "Type / to browse commands, use arrows to select, Ctrl+J for a new line, "
-        "/exit to stop.\n"
-    )
+    stdout.write(welcome_panel(settings))
     stdout.flush()
     async def ask(prompt: str) -> str:
         if live_session is not None:
             return (await live_session.prompt_async(prompt)).strip()
         stdout.write(prompt); stdout.flush()
         return (await asyncio.to_thread(stdin.readline)).strip()
+    async def ask_secret(prompt: str) -> str:
+        if live_session is not None:
+            return (await live_session.prompt_async(prompt, is_password=True)).strip()
+        stdout.write(prompt); stdout.flush()
+        return (await asyncio.to_thread(stdin.readline)).strip()
+    chat: ChatSession | None = None
+
+    async def chat_turn(text: str) -> None:
+        nonlocal chat
+        if chat is None or chat.label != model_state["label"]:
+            client = build_chat_client(Settings.from_env())
+            if client is None:
+                stderr.write("还没有配置模型：先输入 /model 选择模型，再直接输入文字对话。\n")
+                return
+            chat = ChatSession(client, label=model_state["label"])
+        started = time.monotonic()
+        try:
+            response = await chat.send(text)
+        except LlmError as error:
+            stderr.write(describe_llm_error(error) + "\n")
+            return
+        tty = live_session is not None
+        width = shutil.get_terminal_size(fallback=(80, 24)).columns if tty else 0
+        stdout.write(format_reply(response, time.monotonic() - started, width, color=tty))
     try:
         while True:
             if live_session is not None:  # pragma: no cover - real TTY integration
@@ -192,50 +263,12 @@ async def interactive(
                     stderr.write(f"Unknown command: {parts[1]}\n")
                 continue
             if raw == "/model":
-                from active_agent_platform.foundation import Settings
-                settings = Settings.from_env()
-                stdout.write(json.dumps({"configured": bool(settings.model_url and settings.model_name and settings.model_api_key),
-                                         "provider": settings.model_provider, "url": settings.model_url or None,
-                                         "model": settings.model_name or None,
-                                         "api_key_configured": bool(settings.model_api_key)}, ensure_ascii=False) + "\n")
-                catalog = {
-                    "openai": ("https://api.openai.com/v1", ("gpt-4o-mini", "gpt-4o", "o3-mini")),
-                    "anthropic": ("https://api.anthropic.com", ("claude-3-5-sonnet-latest", "claude-3-7-sonnet-latest")),
-                    "glm": ("https://open.bigmodel.cn/api/paas/v4", ("glm-4-flash", "glm-4-plus", "glm-4-air")),
-                    "deepseek": ("https://api.deepseek.com/v1", ("deepseek-chat", "deepseek-reasoner")),
-                    "qwen": ("https://dashscope.aliyuncs.com/compatible-mode/v1", ("qwen-plus", "qwen-max")),
-                    "ollama": ("http://localhost:11434/v1", ("llama3.2", "qwen2.5")),
-                }
-                providers = tuple(catalog)
-                stdout.write("1级：选择 Provider\n")
-                for index, item in enumerate(providers, 1): stdout.write(f"  {index}. {item}\n")
-                choice = await ask(f"Provider [{settings.model_provider}]: ")
-                if choice.isdigit() and 1 <= int(choice) <= len(providers): provider = providers[int(choice) - 1]
-                else: provider = choice or settings.model_provider
-                if provider == "openai-compatible": provider = "openai"
-                default_url, models = catalog.get(provider, (settings.model_url, (settings.model_name or "custom",)))
-                stdout.write("2级：选择默认模型\n")
-                for index, item in enumerate(models, 1): stdout.write(f"  {index}. {item}\n")
-                model_choice = await ask(f"Model [{settings.model_name or models[0]}]: ")
-                name = models[int(model_choice) - 1] if model_choice.isdigit() and 1 <= int(model_choice) <= len(models) else (model_choice or settings.model_name or models[0])
-                url = (await ask(f"Model URL [{settings.model_url or default_url}]: ")) or settings.model_url or default_url
-                key = (await ask("API key [留空保持不变]: ")) or settings.model_api_key
-                if not url or not name or not key:
-                    stderr.write("Model configuration cancelled: URL, model name and API key are required.\n")
-                    continue
-                    env_path = Path.cwd() / ".env"
-                    existing = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
-                    values = {"BIA_MODEL_PROVIDER": provider, "BIA_MODEL_URL": url,
-                              "BIA_MODEL_NAME": name, "BIA_MODEL_API_KEY": key}
-                    seen: set[str] = set(); output: list[str] = []
-                    for line in existing:
-                        key_name = line.split("=", 1)[0].strip() if "=" in line else ""
-                        if key_name in values:
-                            output.append(f"{key_name}={values[key_name]}"); seen.add(key_name)
-                        else: output.append(line)
-                    output.extend(f"{k}={v}" for k, v in values.items() if k not in seen)
-                    env_path.write_text("\n".join(output) + "\n", encoding="utf-8")
-                    stdout.write(f"Model configuration saved to {env_path}. Restart bia to apply.\n")
+                selection = await configure_model(
+                    Settings.from_env(), ask=ask, ask_secret=ask_secret, stdout=stdout,
+                    stderr=stderr, interactive=live_session is not None,
+                )
+                if selection is not None:
+                    model_state["label"] = f"{selection.model} · {selection.provider} ✓"
                 continue
             if raw in {"/loop", "/loop status", "/loop services", "/loop lag",
                        "/loop checkpoints"}:
@@ -265,6 +298,14 @@ async def interactive(
                     stdout.write(
                         f"LoopEngine {snapshot.system.value} · instance {snapshot.instance_id}\n"
                     )
+                continue
+            if raw == "/clear":
+                if chat is not None:
+                    chat.clear()
+                stdout.write("✓ 已清空对话上下文。\n")
+                continue
+            if not raw.startswith("/"):
+                await chat_turn(raw)
                 continue
             if raw.startswith("/") and " " not in raw:
                 matches = tuple(command for command in COMMANDS if command.startswith(raw))
@@ -327,6 +368,6 @@ def slash_arguments(raw: str) -> tuple[str, ...] | None:
         return (command, *(rest or ()))
     if command == "subscriptions":
         return (command, *(rest or ("list",)))
-    if command in {"commands", "insights", "health", "status", "diagnose", "metrics", "log", "model"}:
+    if command in {"commands", "insights", "health", "status", "diagnose", "metrics", "log", "model", "clear"}:
         return (command, *rest)
     return None
