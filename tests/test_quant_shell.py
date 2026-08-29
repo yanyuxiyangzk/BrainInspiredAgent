@@ -84,14 +84,14 @@ def test_model_label_summarizes_state() -> None:
     from apps.quant_agent.shell import model_label
 
     assert model_label(Settings()) == "未配置"
-    assert model_label(Settings(model_url="https://x/v1", model_name="m")) == "m · 缺 Key"
+    assert model_label(Settings(model_url="https://x/v1", model_name="m")) == "m（缺 Key）"
     assert model_label(Settings(
         model_provider="glm", model_url="https://x/v1",
         model_name="glm-4-flash", model_api_key="k",
-    )) == "glm-4-flash · glm ✓"
+    )) == "glm-4-flash"
     assert model_label(Settings(
         model_provider="ollama", model_url="http://localhost:11434/v1", model_name="llama3.2",
-    )) == "llama3.2 · ollama ✓"
+    )) == "llama3.2"
 
 
 @pytest.mark.asyncio

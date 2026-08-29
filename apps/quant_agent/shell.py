@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shlex
 import shutil
 import time
@@ -64,9 +65,10 @@ SHELL_STYLE = Style.from_dict({
     "completion-menu.meta.completion.current": "bg:ansidefault #38bdf8 bold",
     "scrollbar.background": "bg:ansidefault",
     "scrollbar.button": "bg:ansidefault #38bdf8",
-    "bottom-toolbar": "bg:ansidefault",
-    "toolbar-label": "#7a828a",
-    "toolbar-model": "#7dd3fc bold",
+    "bottom-toolbar": "noreverse bg:ansidefault",
+    "toolbar-model": "#e5c07b bold",
+    "toolbar-sep": "#7a828a",
+    "toolbar-cwd": "#98c379",
 })
 
 
@@ -87,12 +89,12 @@ class SlashCompleter(Completer):
 
 
 def model_label(settings: Settings) -> str:
-    """Compact model status for the input toolbar."""
+    """Compact model name for the Codex-style input toolbar."""
     key_ready = bool(settings.model_api_key) or settings.model_provider == OLLAMA_PROVIDER
     if settings.model_url and settings.model_name and key_ready:
-        return f"{settings.model_name} · {settings.model_provider} ✓"
+        return settings.model_name
     if settings.model_name or settings.model_url:
-        return f"{settings.model_name or settings.model_url} · 缺 Key"
+        return f"{settings.model_name or settings.model_url}（缺 Key）"
     return "未配置"
 
 
@@ -189,9 +191,14 @@ async def interactive(
     live_session: PromptSession[str] | None = None
     if stdin.isatty() and stdout.isatty():  # pragma: no cover - real TTY integration
         def toolbar() -> StyleAndTextTuples:
+            cwd = os.getcwd()
+            home = str(Path.home())
+            if cwd.startswith(home):
+                cwd = "~" + cwd[len(home):]
             fragments: StyleAndTextTuples = [
-                ("class:toolbar-label", " 模型 "),
                 ("class:toolbar-model", model_state["label"]),
+                ("class:toolbar-sep", "  ·  "),
+                ("class:toolbar-cwd", cwd),
             ]
             return fragments
 
@@ -268,7 +275,7 @@ async def interactive(
                     stderr=stderr, interactive=live_session is not None,
                 )
                 if selection is not None:
-                    model_state["label"] = f"{selection.model} · {selection.provider} ✓"
+                    model_state["label"] = selection.model
                 continue
             if raw in {"/loop", "/loop status", "/loop services", "/loop lag",
                        "/loop checkpoints"}:
