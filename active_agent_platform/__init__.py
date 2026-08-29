@@ -61,6 +61,26 @@ from active_agent_platform.goals import (
     GoalStatus,
 )
 from active_agent_platform.governed_execution import GovernedCognitiveApp, GovernedExecutionResult
+from active_agent_platform.llm import (
+    ChatMessage,
+    ChatModel,
+    FakeChatModel,
+    LlmError,
+    LlmErrorCode,
+    ModelCapabilities,
+    ModelRequest,
+    ModelResponse,
+    OpenAICompatibleModel,
+    StructuredChatModel,
+)
+from active_agent_platform.llm_runtime import (
+    Conversation,
+    ConversationService,
+    GovernedLlmClient,
+    LlmBudget,
+    LlmConfig,
+    LlmUsage,
+)
 from active_agent_platform.memory import (
     MemoryOrigin,
     MemoryWriteOutcome,
@@ -71,11 +91,6 @@ from active_agent_platform.memory import (
     WorkingMemoryMetrics,
 )
 from active_agent_platform.metrics import MetricsSnapshot, PlatformMetrics, prometheus
-from active_agent_platform.llm import (
-    ChatMessage, ChatModel, FakeChatModel, OpenAICompatibleModel, LlmError, LlmErrorCode,
-    ModelCapabilities, ModelRequest, ModelResponse, StructuredChatModel,
-)
-from active_agent_platform.llm_runtime import Conversation, ConversationService, GovernedLlmClient, LlmBudget, LlmConfig, LlmUsage
 from active_agent_platform.motor import (
     MotorExec,
     MotorExecutionRequest,

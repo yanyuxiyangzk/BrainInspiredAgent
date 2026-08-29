@@ -1,9 +1,9 @@
 """Validated, immutable platform settings."""
 
 import os
-from pathlib import Path
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
 from brain_kernel.ports import LogLevel
 
