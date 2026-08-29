@@ -102,10 +102,11 @@ class ConversationService:
     async def send_streaming(
         self, conversation_id: str, content: str, *, correlation_id: str,
         system: str | None = None, on_delta: Callable[[str], None] | None = None,
+        images: tuple[str, ...] = (),
     ) -> ModelResponse:
         """Stream a reply, forward deltas to ``on_delta``, and keep context."""
         session = self.get(conversation_id)
-        messages = session.messages + ((ChatMessage("system", system),) if system and not session.messages else ()) + (ChatMessage("user", content),)
+        messages = session.messages + ((ChatMessage("system", system),) if system and not session.messages else ()) + (ChatMessage("user", content, images),)
         request = ModelRequest(messages, self.client.config.provider, self.client.config.model, correlation_id, timeout_seconds=self.client.config.timeout_seconds)
         parts: list[str] = []
         input_tokens = output_tokens = 0

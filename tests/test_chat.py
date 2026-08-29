@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from pathlib import Path
 from urllib.error import HTTPError
 
 import pytest
@@ -22,9 +23,11 @@ from active_agent_platform.llm_runtime import GovernedLlmClient, LlmConfig
 from apps.quant_agent.chat import (
     CHAT_CONVERSATION_ID,
     DEFAULT_SYSTEM_PROMPT,
+    ChatInputError,
     ChatSession,
     build_chat_client,
     describe_llm_error,
+    extract_images,
     format_footer,
     format_reply,
 )
@@ -228,3 +231,49 @@ async def test_governed_stream_retries_before_first_delta() -> None:
     chunks = [chunk async for chunk in client.stream_generate(_stream_request())]
     text = "".join(chunk for chunk in chunks if isinstance(chunk, str))
     assert text == "恢复的回复" and len(model.requests) == 2
+
+
+def test_extract_images_reads_existing_and_keeps_missing(tmp_path: Path) -> None:
+    image = tmp_path / "shot.png"
+    image.write_bytes(b"\x89PNG-fake")
+    text, images = extract_images(f"看看 [图片:{image}] 还有 missing.png 好了")
+    assert len(images) == 1 and images[0].startswith("data:image/png;base64,")
+    assert "shot" not in text and "missing.png" in text
+
+
+def test_extract_images_rejects_oversized_file(tmp_path: Path) -> None:
+    big = tmp_path / "big.png"
+    big.write_bytes(b"x" * (5 * 1024 * 1024 + 1))
+    with pytest.raises(ChatInputError):
+        extract_images(f"看 {big}")
+
+
+@pytest.mark.asyncio
+async def test_chat_session_sends_images() -> None:
+    model = FakeChatModel(["好的"])
+    session = ChatSession(GovernedLlmClient(model, _config()), label="x")
+    await session.send("看图", images=("data:image/png;base64,aaa",))
+    sent = model.requests[0].messages[-1]
+    assert sent.images == ("data:image/png;base64,aaa",)
+
+
+@pytest.mark.asyncio
+async def test_openai_payload_includes_image_content(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_urlopen(request: object, timeout: float = 60) -> _FakeStreamResponse:
+        del timeout
+        captured["body"] = llm_module.json.loads(request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        return _FakeStreamResponse(b"data: [DONE]\n")
+
+    monkeypatch.setattr(llm_module, "urlopen", fake_urlopen)
+    model = OpenAICompatibleModel(base_url="https://x/v1", api_key="k", default_model="m")
+    request = ModelRequest(
+        messages=(ChatMessage("user", "看图", images=("data:image/png;base64,aaa",)),),
+        provider="glm", model="m", correlation_id="c",
+    )
+    [chunk async for chunk in model.stream_generate(request)]
+    content = captured["body"]["messages"][0]["content"]  # type: ignore[index]
+    assert isinstance(content, list)
+    assert content[0] == {"type": "text", "text": "看图"}
+    assert content[1]["type"] == "image_url"

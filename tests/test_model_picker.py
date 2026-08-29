@@ -39,6 +39,8 @@ def test_provider_catalog_is_well_formed() -> None:
         names = [item.name for item in entry.models]
         assert names and len(names) == len(set(names))
         assert all(item.description for item in entry.models)
+    glm_models = [item.name for entry in PROVIDER_CATALOG if entry.label == "glm" for item in entry.models]
+    assert glm_models[:2] == ["glm-5.3-flash", "glm-5.3"]
 
 
 def test_resolve_indexes_match_catalog() -> None:
@@ -111,7 +113,7 @@ async def test_configure_model_fallback_saves_selection(tmp_path: Path) -> None:
         for line in env_path.read_text(encoding="utf-8").splitlines() if "=" in line
     )
     assert values["BIA_MODEL_PROVIDER"] == "glm"
-    assert values["BIA_MODEL_NAME"] == "glm-4-plus"
+    assert values["BIA_MODEL_NAME"] == "glm-5.3"
     assert values["BIA_MODEL_URL"] == PROVIDER_CATALOG[0].default_url
     assert values["BIA_MODEL_API_KEY"] == "sk-test"
     assert "当前模型" in stdout.getvalue() and "✓" in stdout.getvalue()
@@ -192,7 +194,7 @@ async def test_configure_model_interactive_uses_picker_and_saves(
         line.split("=", 1)
         for line in env_path.read_text(encoding="utf-8").splitlines() if "=" in line
     )
-    assert values["BIA_MODEL_PROVIDER"] == "glm" and values["BIA_MODEL_NAME"] == "glm-4-plus"
+    assert values["BIA_MODEL_PROVIDER"] == "glm" and values["BIA_MODEL_NAME"] == "glm-5.3"
     assert values["BIA_MODEL_API_KEY"] == "sk-abc"
     assert not stderr.getvalue()
 

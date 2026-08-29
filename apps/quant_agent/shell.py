@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import os
 import shlex
 import shutil
+import subprocess
 import time
 from io import StringIO
 from pathlib import Path
@@ -23,11 +25,14 @@ from prompt_toolkit.styles import Style
 from active_agent_platform.foundation import Settings
 from active_agent_platform.llm import LlmError
 from apps.quant_agent.chat import (
+    ChatInputError,
     ChatSession,
     build_chat_client,
     describe_llm_error,
+    extract_images,
     format_footer,
 )
+from apps.quant_agent.clipboard import capture_clipboard
 from apps.quant_agent.commands import COMMAND_SPECS, COMMANDS, command_help
 from apps.quant_agent.model_picker import OLLAMA_PROVIDER, configure_model
 
@@ -88,6 +93,19 @@ class SlashCompleter(Completer):
                 )
 
 
+@functools.lru_cache(maxsize=1)
+def _build_tag() -> str:
+    """Short git hash of the running source tree, so builds are distinguishable."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(Path(__file__).resolve().parents[2]), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=3, check=False,
+        )
+    except OSError:
+        return "dev"
+    return result.stdout.strip() or "dev"
+
+
 def model_label(settings: Settings) -> str:
     """Compact model name for the Codex-style input toolbar."""
     key_ready = bool(settings.model_api_key) or settings.model_provider == OLLAMA_PROVIDER
@@ -111,7 +129,7 @@ def welcome_panel(settings: Settings) -> str:
     return "\n".join([
         rule,
         f"          模型   {model_line}",
-        "          提示   直接输入与模型对话 · /help 命令总览 · /model 切换模型 · /clear 清空 · Ctrl+J 换行",
+        f"          提示   直接输入与模型对话 · Ctrl+V 贴图 · /help 命令总览 · /model 切换模型 · /clear 清空 · 构建 {_build_tag()}",
         rule,
     ]) + "\n"
 
@@ -141,7 +159,7 @@ def _find_floats(container: object) -> tuple[Float, ...]:
 
 
 def _shell_key_bindings() -> KeyBindings:  # pragma: no cover - prompt-toolkit callbacks
-    """Keep Enter as submit while allowing Ctrl+J to add a new line."""
+    """Enter submits, Ctrl+J adds a newline, Ctrl+V/Alt+V paste the clipboard."""
     bindings = KeyBindings()
 
     @bindings.add("enter")
@@ -153,6 +171,25 @@ def _shell_key_bindings() -> KeyBindings:  # pragma: no cover - prompt-toolkit c
         # ``prompt_toolkit``'s event exposes the current buffer; keeping this
         # binding local avoids changing the global editing behaviour.
         event.current_buffer.insert_text("\n")  # type: ignore[attr-defined]
+
+    @bindings.add("c-v")
+    @bindings.add("escape", "v")
+    def _paste_clipboard(event: object) -> None:
+        buffer = event.current_buffer  # type: ignore[attr-defined]
+        loop = asyncio.get_running_loop()
+
+        def worker() -> None:
+            kind, payload = capture_clipboard()
+
+            def apply() -> None:
+                if kind == "image" and payload:
+                    buffer.insert_text(f"[图片:{payload}]")
+                elif kind == "text" and payload:
+                    buffer.insert_text(payload)
+
+            loop.call_soon_threadsafe(apply)
+
+        loop.run_in_executor(None, worker)
 
     return bindings
 
@@ -228,12 +265,22 @@ async def interactive(
 
     async def chat_turn(text: str) -> None:
         nonlocal chat
+        try:
+            cleaned, images = extract_images(text)
+        except ChatInputError as error:
+            stderr.write(f"{error}\n")
+            return
+        if not cleaned:
+            cleaned = "请看这张图片"
         if chat is None or chat.label != model_state["label"]:
             client = build_chat_client(Settings.from_env())
             if client is None:
                 stderr.write("还没有配置模型：先输入 /model 选择模型，再直接输入文字对话。\n")
                 return
             chat = ChatSession(client, label=model_state["label"])
+        if images:
+            stdout.write(f"[已附带 {len(images)} 张图片]\n")
+            stdout.flush()
         emitted = {"chars": 0}
 
         def print_delta(delta: str) -> None:
@@ -243,7 +290,7 @@ async def interactive(
 
         started = time.monotonic()
         try:
-            response = await chat.send(text, on_delta=print_delta)
+            response = await chat.send(cleaned, on_delta=print_delta, images=images)
         except LlmError as error:
             if emitted["chars"]:
                 stdout.write("\n")

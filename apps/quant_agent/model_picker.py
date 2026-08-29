@@ -50,9 +50,9 @@ class ProviderEntry:
 
 PROVIDER_CATALOG: tuple[ProviderEntry, ...] = (
     ProviderEntry("glm", "https://open.bigmodel.cn/api/paas/v4", "智谱 BigModel · open.bigmodel.cn", (
-        ModelOption("glm-4-flash", "免费高速，适合日常摘要与通知"),
-        ModelOption("glm-4-plus", "旗舰模型，适合复杂推理与规划"),
-        ModelOption("glm-4-air", "速度与能力均衡，性价比高"),
+        ModelOption("glm-5.3-flash", "最新高速款，日常对话与摘要"),
+        ModelOption("glm-5.3", "最新旗舰，复杂推理与规划"),
+        ModelOption("glm-4-flash", "上一代免费款，保底可用"),
     )),
     ProviderEntry("deepseek", "https://api.deepseek.com/v1", "DeepSeek 官方 · api.deepseek.com", (
         ModelOption("deepseek-chat", "通用对话与摘要，响应快"),

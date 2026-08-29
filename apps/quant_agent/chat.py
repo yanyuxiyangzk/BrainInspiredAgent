@@ -7,7 +7,11 @@ turns get retries, token budgeting and multi-turn context for free.
 
 from __future__ import annotations
 
+import base64
+import os
+import re
 from collections.abc import Callable
+from pathlib import Path
 from unicodedata import east_asian_width
 from uuid import uuid4
 
@@ -30,6 +34,40 @@ from apps.quant_agent.model_picker import OLLAMA_PROVIDER
 CHAT_TIMEOUT_SECONDS = 60.0
 CHAT_CONVERSATION_ID = "bia-shell-chat"
 DEFAULT_SYSTEM_PROMPT = "你是 BIA 类脑智能终端中的对话助手，回答使用中文，简洁、准确、直接。"
+IMAGE_PLACEHOLDER = re.compile(r"\[图片:([^\]\s]+)\]")
+IMAGE_PATTERN = re.compile(r"[^\s\[\]]+?\.(?:png|jpe?g|webp|gif)", re.IGNORECASE)
+IMAGE_MIME = {"png": "png", "jpg": "jpeg", "jpeg": "jpeg", "webp": "webp", "gif": "gif"}
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+
+class ChatInputError(RuntimeError):
+    """Invalid chat input, such as an over-sized image attachment."""
+
+
+def extract_images(text: str) -> tuple[str, tuple[str, ...]]:
+    """Pull existing image file paths out of ``text`` as base64 data URLs.
+
+    ``[图片:path]`` placeholders from the clipboard handler are checked first;
+    bare paths that do not exist on disk stay untouched so half-typed words
+    survive.
+    """
+    images: list[str] = []
+
+    def _collect(path: str) -> str:
+        if not os.path.isfile(path):
+            return path
+        if os.path.getsize(path) > MAX_IMAGE_BYTES:
+            raise ChatInputError(f"图片 {path} 超过 5MB 上限，请压缩后再试")
+        suffix = os.path.splitext(path)[1].lower().lstrip(".")
+        mime = IMAGE_MIME.get(suffix, "png")
+        data = base64.b64encode(Path(path).read_bytes()).decode("ascii")
+        images.append(f"data:image/{mime};base64,{data}")
+        return ""
+
+    text = IMAGE_PLACEHOLDER.sub(lambda match: _collect(match.group(1)), text)
+    cleaned = IMAGE_PATTERN.sub(lambda match: _collect(match.group(0)), text)
+    cleaned = re.sub(r" {2,}", " ", cleaned).strip()
+    return cleaned, tuple(images)
 
 
 def build_chat_client(settings: Settings) -> GovernedLlmClient | None:
@@ -74,11 +112,13 @@ class ChatSession:
 
     async def send(
         self, content: str, on_delta: Callable[[str], None] | None = None,
+        images: tuple[str, ...] = (),
     ) -> ModelResponse:
         """Send one turn; when ``on_delta`` is given the reply streams through it."""
         return await self.service.send_streaming(
             CHAT_CONVERSATION_ID, content,
             correlation_id=uuid4().hex[:12], system=self.system, on_delta=on_delta,
+            images=images,
         )
 
 

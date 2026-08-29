@@ -30,6 +30,7 @@ class LlmError(RuntimeError):
 class ChatMessage:
     role: str
     content: str
+    images: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.role not in {"system", "user", "assistant", "tool"} or not self.content:
@@ -171,10 +172,19 @@ class OpenAICompatibleModel:
         self.base_url = base_url.rstrip("/")
         self.api_key, self.default_model, self.provider = api_key, default_model, provider
 
+    @staticmethod
+    def _message_payload(message: ChatMessage) -> dict[str, object]:
+        """Plain text when possible, OpenAI vision content array with images."""
+        if not message.images:
+            return {"role": message.role, "content": message.content}
+        content: list[dict[str, object]] = [{"type": "text", "text": message.content}]
+        content.extend({"type": "image_url", "image_url": {"url": url}} for url in message.images)
+        return {"role": message.role, "content": content}
+
     async def generate(self, request: ModelRequest) -> ModelResponse:
         payload: dict[str, object] = {
             "model": request.model or self.default_model,
-            "messages": [{"role": m.role, "content": m.content} for m in request.messages],
+            "messages": [self._message_payload(m) for m in request.messages],
             "temperature": request.temperature,
         }
         if request.seed is not None: payload["seed"] = request.seed
@@ -212,7 +222,7 @@ class OpenAICompatibleModel:
         """Stream ``/chat/completions`` deltas plus a trailing usage report."""
         payload: dict[str, object] = {
             "model": request.model or self.default_model,
-            "messages": [{"role": m.role, "content": m.content} for m in request.messages],
+            "messages": [self._message_payload(m) for m in request.messages],
             "temperature": request.temperature,
             "stream": True,
             "stream_options": {"include_usage": True},

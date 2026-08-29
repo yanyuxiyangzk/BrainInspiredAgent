@@ -307,4 +307,4 @@ async def test_shell_model_command_persists_configuration(
     assert "当前模型" in output and "选择 Provider" in output and "✓ 模型配置已保存" in output
     env = (tmp_path / ".env").read_text(encoding="utf-8")
     assert "BIA_MODEL_PROVIDER=glm" in env and "BIA_MODEL_API_KEY=sk-shell" in env
-    assert "BIA_MODEL_NAME=glm-4-flash" in env
+    assert "BIA_MODEL_NAME=glm-5.3-flash" in env
