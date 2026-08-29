@@ -37,6 +37,7 @@ COMMAND_SPECS = (
     CommandSpec("/health", "check database liveness and readiness", "/health", ("health",)),
     CommandSpec("/model", "choose LLM provider, endpoint and default model", "/model", ("model",)),
     CommandSpec("/clear", "clear in-session chat context", "/clear"),
+    CommandSpec("/img", "attach the clipboard image to the next message", "/img"),
     CommandSpec("/status", "show durable platform status", "/status", ("status",)),
     CommandSpec("/diagnose", "show a diagnostic snapshot", "/diagnose", ("diagnose",)),
     CommandSpec("/loop", "inspect the active LoopEngine supervisor", "/loop [status|services|lag|checkpoints]"),

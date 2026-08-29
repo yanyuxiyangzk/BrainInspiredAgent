@@ -44,6 +44,18 @@ class ChatInputError(RuntimeError):
     """Invalid chat input, such as an over-sized image attachment."""
 
 
+def image_data_url(path: str) -> str:
+    """Encode one image file as a base64 data URL, enforcing the size cap."""
+    if not os.path.isfile(path):
+        raise ChatInputError(f"图片不存在：{path}")
+    if os.path.getsize(path) > MAX_IMAGE_BYTES:
+        raise ChatInputError(f"图片 {path} 超过 5MB 上限，请压缩后再试")
+    suffix = os.path.splitext(path)[1].lower().lstrip(".")
+    mime = IMAGE_MIME.get(suffix, "png")
+    data = base64.b64encode(Path(path).read_bytes()).decode("ascii")
+    return f"data:image/{mime};base64,{data}"
+
+
 def extract_images(text: str) -> tuple[str, tuple[str, ...]]:
     """Pull existing image file paths out of ``text`` as base64 data URLs.
 
@@ -56,12 +68,7 @@ def extract_images(text: str) -> tuple[str, tuple[str, ...]]:
     def _collect(path: str) -> str:
         if not os.path.isfile(path):
             return path
-        if os.path.getsize(path) > MAX_IMAGE_BYTES:
-            raise ChatInputError(f"图片 {path} 超过 5MB 上限，请压缩后再试")
-        suffix = os.path.splitext(path)[1].lower().lstrip(".")
-        mime = IMAGE_MIME.get(suffix, "png")
-        data = base64.b64encode(Path(path).read_bytes()).decode("ascii")
-        images.append(f"data:image/{mime};base64,{data}")
+        images.append(image_data_url(path))
         return ""
 
     text = IMAGE_PLACEHOLDER.sub(lambda match: _collect(match.group(1)), text)

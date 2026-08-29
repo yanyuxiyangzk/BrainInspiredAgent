@@ -261,6 +261,44 @@ async def test_shell_chat_maps_llm_errors(
     assert "模型认证失败" in stderr.getvalue() and "/model" in stderr.getvalue()
 
 
+@pytest.mark.asyncio
+async def test_shell_img_command_attaches_clipboard_image(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from active_agent_platform.llm import FakeChatModel
+    from active_agent_platform.llm_runtime import GovernedLlmClient, LlmConfig
+
+    image = tmp_path / "paste.png"
+    image.write_bytes(b"\x89PNG-fake")
+    models: list[FakeChatModel] = []
+
+    def fake_client(settings: object) -> GovernedLlmClient:
+        del settings
+        model = FakeChatModel(["看到了图片"], provider="glm", model="glm-5.3-flash")
+        models.append(model)
+        return GovernedLlmClient(
+            model,
+            LlmConfig(provider="glm", model="glm-5.3-flash", api_key_ref="test",
+                      timeout_seconds=5, daily_token_budget=1000),
+        )
+
+    monkeypatch.setattr("apps.quant_agent.shell.build_chat_client", fake_client)
+    monkeypatch.setattr(
+        "apps.quant_agent.shell.capture_clipboard", lambda: ("image", str(image)),
+    )
+    stdin = StringIO("/img\n图里有什么\n/exit\n")
+    stdout, stderr = StringIO(), StringIO()
+    code = await run(
+        ("--database", str(tmp_path / "bia.db"), "shell"), stdout, stderr, stdin,
+    )
+    assert code == 0 and not stderr.getvalue()
+    output = stdout.getvalue()
+    assert "已从剪贴板添加" in output and "[已附带 1 张图片]" in output
+    assert "看到了图片" in output
+    sent = models[0].requests[0].messages[-1]
+    assert sent.images and sent.images[0].startswith("data:image/png;base64,")
+
+
 def test_bare_main_enters_shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import sys
 

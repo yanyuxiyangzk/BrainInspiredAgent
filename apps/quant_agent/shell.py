@@ -31,6 +31,7 @@ from apps.quant_agent.chat import (
     describe_llm_error,
     extract_images,
     format_footer,
+    image_data_url,
 )
 from apps.quant_agent.clipboard import capture_clipboard
 from apps.quant_agent.commands import COMMAND_SPECS, COMMANDS, command_help
@@ -129,7 +130,7 @@ def welcome_panel(settings: Settings) -> str:
     return "\n".join([
         rule,
         f"          模型   {model_line}",
-        f"          提示   直接输入与模型对话 · Ctrl+V 贴图 · /help 命令总览 · /model 切换模型 · /clear 清空 · 构建 {_build_tag()}",
+        f"          提示   直接输入与模型对话 · /img 或 Ctrl+V 贴图 · /help 命令总览 · /model 切换模型 · 构建 {_build_tag()}",
         rule,
     ]) + "\n"
 
@@ -262,11 +263,14 @@ async def interactive(
         stdout.write(prompt); stdout.flush()
         return (await asyncio.to_thread(stdin.readline)).strip()
     chat: ChatSession | None = None
+    pending_images: list[str] = []
 
     async def chat_turn(text: str) -> None:
         nonlocal chat
         try:
             cleaned, images = extract_images(text)
+            for path in pending_images:
+                images = images + (image_data_url(path),)
         except ChatInputError as error:
             stderr.write(f"{error}\n")
             return
@@ -296,6 +300,7 @@ async def interactive(
                 stdout.write("\n")
             stderr.write(describe_llm_error(error) + "\n")
             return
+        pending_images.clear()
         tty = live_session is not None
         width = shutil.get_terminal_size(fallback=(80, 24)).columns if tty else 0
         stdout.write("\n" + format_footer(response, time.monotonic() - started, width, color=tty))
@@ -361,6 +366,19 @@ async def interactive(
                     stdout.write(
                         f"LoopEngine {snapshot.system.value} · instance {snapshot.instance_id}\n"
                     )
+                continue
+            if raw == "/img":
+                kind, payload = capture_clipboard()
+                if kind == "image" and payload:
+                    pending_images.append(payload)
+                    stdout.write(
+                        f"✓ 已从剪贴板添加 1 张图片（共 {len(pending_images)} 张），"
+                        "下一条消息将自动附带。\n"
+                    )
+                elif kind == "text" and payload:
+                    stdout.write("剪贴板里是文本，直接输入发送即可（/img 只附带图片）。\n")
+                else:
+                    stdout.write("剪贴板里没有图片（或 PowerShell 不可用）。\n")
                 continue
             if raw == "/clear":
                 if chat is not None:
