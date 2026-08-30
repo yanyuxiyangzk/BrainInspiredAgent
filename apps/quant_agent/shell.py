@@ -90,9 +90,12 @@ SHELL_STYLE = Style.from_dict({
     "status-left": "#7a828a",
     "status-model": "#e5c07b bold",
     "status-note": "#7dd3fc",
+    "thinking": "#7dd3fc",
     "menu-row": "#e2e8f0",
     "menu-selected": "bg:#38bdf8 #08111a bold",
 })
+
+STATUS_HINTS = "? 直接输入与模型对话 · /img 或 Ctrl+V 贴图 · /help"
 
 
 class SlashCompleter(Completer):
@@ -250,7 +253,7 @@ async def interactive(
 
         def render_status() -> StyleAndTextTuples:
             width = shutil.get_terminal_size(fallback=(80, 24)).columns
-            left = "? 直接输入与模型对话 · /img 或 Ctrl+V 贴图 · /help"
+            left = STATUS_HINTS
             right = f"◆ {model_state['label']}"
             if usage_state["text"]:
                 right += f" · {usage_state['text']}"
@@ -432,27 +435,54 @@ async def interactive(
             chat = ChatSession(client, label=model_state["label"])
         normalizer = WhitespaceNormalizer()
         emitted = {"chars": 0}
+        thinking: asyncio.Task[None] | None = None
+        indicator = {"active": False}
+
+        def clear_thinking() -> None:
+            if indicator["active"]:
+                stdout.write("\r\x1b[2K")
+                indicator["active"] = False
+
+        async def thinking_spin() -> None:  # pragma: no cover - real TTY animation
+            marks = "✻✼✶✷"
+            started_at = time.monotonic()
+            position = 0
+            while True:
+                elapsed = time.monotonic() - started_at
+                stdout.write(f"\r\x1b[2K{marks[position % 4]} 思考中… {elapsed:.0f}s")
+                stdout.flush()
+                position += 1
+                await asyncio.sleep(0.4)
 
         def print_delta(delta: str) -> None:
             text = normalizer.feed(delta)
             if not emitted["chars"] and not text:
                 return
             if not emitted["chars"]:
-                stdout.write("\n")
+                clear_thinking()
                 if images:
                     stdout.write(f"[已附带 {len(images)} 张图片]\n")
             emitted["chars"] += len(delta)
             stdout.write(text)
             stdout.flush()
 
+        if tty:
+            stdout.write(f"{STATUS_HINTS}    ◆ {model_state['label']}\n")
+            thinking = asyncio.create_task(thinking_spin())
         started = time.monotonic()
         try:
             response = await chat.send(cleaned, on_delta=print_delta, images=images)
         except LlmError as error:
+            if thinking is not None:
+                thinking.cancel()
+            clear_thinking()
             if emitted["chars"]:
                 stdout.write("\n")
             stderr.write(describe_llm_error(error) + "\n")
             return
+        if thinking is not None:
+            thinking.cancel()
+        clear_thinking()
         pending_images.clear()
         tail = normalizer.flush()
         if tail:
