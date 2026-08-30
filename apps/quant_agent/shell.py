@@ -31,6 +31,7 @@ from apps.quant_agent.chat import (
     build_chat_client,
     describe_llm_error,
     extract_images,
+    find_missing_images,
     format_footer,
     image_data_url,
 )
@@ -293,6 +294,12 @@ async def interactive(
             return
         if not cleaned:
             cleaned = "请看这张图片"
+        missing = find_missing_images(text)
+        if missing:
+            stderr.write(
+                "⚠ 未找到图片文件：" + "、".join(missing)
+                + "（确认路径是否正确，或截图后用 /img 从剪贴板添加）\n"
+            )
         if chat is None or chat.label != model_state["label"]:
             client = build_chat_client(Settings.from_env())
             if client is None:

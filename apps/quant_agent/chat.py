@@ -45,8 +45,12 @@ class ChatInputError(RuntimeError):
 
 
 def to_wsl_path(path: str) -> str:
-    """Map windows-style paths (``D:\\foo\\bar.png``) onto ``/mnt/d/...``."""
-    posix = path.replace("\\", "/").strip()
+    """Map windows-style paths (``D:\\foo\\bar.png``) onto ``/mnt/d/...``.
+
+    Also strips the ``图片:`` placeholder prefix so bare-pattern matches
+    normalize to the same real path.
+    """
+    posix = re.sub(r"^图片[:：]", "", path.replace("\\", "/").strip())
     if len(posix) > 2 and posix[1] == ":":
         return f"/mnt/{posix[0].lower()}{posix[2:]}"
     return posix
@@ -85,6 +89,20 @@ def extract_images(text: str) -> tuple[str, tuple[str, ...]]:
     cleaned = IMAGE_PATTERN.sub(lambda match: _collect(match.group(0)), text)
     cleaned = re.sub(r" {2,}", " ", cleaned).strip()
     return cleaned, tuple(images)
+
+
+def find_missing_images(text: str) -> list[str]:
+    """Image-looking paths from ``text`` that do not exist on disk."""
+    missing: list[str] = []
+    for match in IMAGE_PLACEHOLDER.finditer(text):
+        path = match.group(1)
+        if not os.path.isfile(to_wsl_path(path)) and path not in missing:
+            missing.append(path)
+    for match in IMAGE_PATTERN.finditer(text):
+        normalized = to_wsl_path(match.group(0))
+        if not os.path.isfile(normalized) and normalized not in missing:
+            missing.append(normalized)
+    return missing
 
 
 def build_chat_client(settings: Settings) -> GovernedLlmClient | None:

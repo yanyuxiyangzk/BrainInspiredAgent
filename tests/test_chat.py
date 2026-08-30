@@ -270,6 +270,15 @@ def test_extract_images_rejects_oversized_file(tmp_path: Path) -> None:
         extract_images(f"看 {big}")
 
 
+def test_find_missing_images_reports_missing_paths(tmp_path: Path) -> None:
+    from apps.quant_agent.chat import find_missing_images
+
+    image = tmp_path / "ok.png"
+    image.write_bytes(b"png")
+    missing = find_missing_images(f"[图片:{image}] gone.png [图片:/tmp/nope.png]")
+    assert missing == ["/tmp/nope.png", "gone.png"]
+
+
 @pytest.mark.asyncio
 async def test_chat_session_sends_images() -> None:
     model = FakeChatModel(["好的"])
