@@ -384,8 +384,8 @@ async def interactive(
             return application, buffer
 
         async def read_line() -> str:
-            # 预留 18 行并回退到预留区顶部：框体 + 菜单 + 尾部填充总高恒为 18，
-            # 提交后擦除整块并回显问题，滚动记录保持紧凑。
+            # 预留 18 行并回退到预留区顶部：框体 + 菜单 + 尾部填充总高恒为 18。
+            # 提交后擦除整块；思考提示行画在回显行上方，回复首字到达时清除。
             stdout.write("\n" * PROMPT_RESERVED_ROWS + "\x1b[1A" * PROMPT_RESERVED_ROWS)
             application, _ = build_prompt_app()
             text = await application.run_async()
@@ -393,6 +393,8 @@ async def interactive(
             if text == CTRL_C_SENTINEL:
                 raise KeyboardInterrupt
             if text.strip():
+                if tty:
+                    stdout.write("  ✻ 思考中…\n")
                 stdout.write(f"❯ {text}\n")
             return text
     stdout.write(BANNER)
@@ -435,39 +437,20 @@ async def interactive(
             chat = ChatSession(client, label=model_state["label"])
         normalizer = WhitespaceNormalizer()
         emitted = {"chars": 0}
-        thinking: asyncio.Task[None] | None = None
-        indicator = {"active": False}
 
-        def clear_thinking() -> None:
-            if indicator["active"]:
-                stdout.write("\r\x1b[2K")
-                indicator["active"] = False
-
-        async def thinking_spin() -> None:  # pragma: no cover - real TTY animation
-            indicator["active"] = True
-            marks = "✻✼✶✷"
-            started_at = time.monotonic()
-            position = 0
-            while True:
-                elapsed = time.monotonic() - started_at
-                stdout.write(f"\r\x1b[2K  {marks[position % 4]} 思考中… {elapsed:.0f}s")
-                stdout.flush()
-                position += 1
-                await asyncio.sleep(0.4)
-
-        def stop_thinking() -> None:
-            nonlocal thinking
-            if thinking is not None:
-                thinking.cancel()
-                thinking = None
-            clear_thinking()
+        def clear_thinking_above(echo_lines: int) -> str:
+            """清掉回显行上方的"✻ 思考中…"行，光标回到回复起始行。"""
+            if not tty:
+                return ""
+            up = echo_lines + 2
+            return "\x1b[1A" * up + "\r\x1b[2K" + "\x1b[1B" * up
 
         def print_delta(delta: str) -> None:
             text = normalizer.feed(delta)
             if not emitted["chars"] and not text:
                 return
             if not emitted["chars"]:
-                stop_thinking()
+                stdout.write(clear_thinking_above(max(1, len(cleaned.splitlines()))))
                 if images:
                     stdout.write(f"[已附带 {len(images)} 张图片]\n")
             emitted["chars"] += len(delta)
@@ -476,17 +459,13 @@ async def interactive(
 
         if tty:
             stdout.write(f"{STATUS_HINTS}    ◆ {model_state['label']}\n")
-            thinking = asyncio.create_task(thinking_spin())
         started = time.monotonic()
         try:
             response = await chat.send(cleaned, on_delta=print_delta, images=images)
         except LlmError as error:
-            stop_thinking()
-            if emitted["chars"]:
-                stdout.write("\n")
+            stderr.write(clear_thinking_above(max(1, len(cleaned.splitlines()))))
             stderr.write(describe_llm_error(error) + "\n")
             return
-        stop_thinking()
         pending_images.clear()
         tail = normalizer.flush()
         if tail:
