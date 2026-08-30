@@ -55,6 +55,10 @@ from apps.quant_agent.model_picker import OLLAMA_PROVIDER, configure_model
 
 HELP = command_help()
 
+# Rows pre-reserved before each prompt so the framed input always fits on
+# screen: rule + pad + input (up to 8 lines) + pad + rule + status + slack.
+PROMPT_RESERVED_ROWS = 15
+
 BANNER = r"""
                    ╭───────╮     ╭───────╮
                ╭───╯ ╭───╮ ╰─────╯ ╭───╮ ╰───╮
@@ -155,8 +159,17 @@ def _shell_key_bindings(
     register_image: Callable[[str], str],
     paste_note: dict[str, str],
 ) -> KeyBindings:  # pragma: no cover - prompt-toolkit callbacks
-    """Ctrl+J adds a newline; Ctrl+V/Alt+V paste the clipboard image or text."""
+    """Ctrl+J adds a newline; Ctrl+V/Alt+V paste; Ctrl+C clears or skips."""
     bindings = KeyBindings()
+
+    @bindings.add("c-c")
+    def _cancel_input(event: object) -> None:
+        buffer = event.current_buffer  # type: ignore[attr-defined]
+        if buffer.text:
+            buffer.reset()
+            event.app.invalidate()  # type: ignore[attr-defined]
+        else:
+            event.app.exit("")  # type: ignore[attr-defined]
 
     @bindings.add("c-j")
     def _insert_newline(event: object) -> None:
@@ -265,8 +278,19 @@ async def interactive(
             def _cancel(event: object) -> None:
                 event.app.exit("")  # type: ignore[attr-defined]
 
+            def render_filler() -> StyleAndTextTuples:
+                # The filler absorbs the unused part of the reserved block so
+                # the bottom rule and status line always end on the same row.
+                used = 5 + min(max(len(buffer.document.lines), 1), 8)
+                filler = max(1, PROMPT_RESERVED_ROWS - used)
+                return [("class:filler", "\n" * (filler - 1))]
+
             layout = Layout(FloatContainer(
                 HSplit([
+                    Window(
+                        content=FormattedTextControl(render_filler),
+                        height=Dimension(min=1, max=PROMPT_RESERVED_ROWS),
+                    ),
                     Window(FormattedTextControl(render_rules), height=1),
                     Window(height=1, char=" "),
                     VSplit([
@@ -283,7 +307,7 @@ async def interactive(
                 ]),
                 floats=[Float(
                     xcursor=True, ycursor=True,
-                    content=CompletionsMenu(max_height=16),
+                    content=CompletionsMenu(max_height=8),
                 )],
             ))
             application: Application[str] = Application(
@@ -292,6 +316,9 @@ async def interactive(
             return application, buffer
 
         async def read_line() -> str:
+            # Reserve rows up front and rewind into them, so the framed
+            # input always renders fully on screen even near the bottom.
+            stdout.write("\n" * PROMPT_RESERVED_ROWS + "\x1b[1A" * PROMPT_RESERVED_ROWS)
             application, _ = build_prompt_app()
             return await application.run_async()
     stdout.write(BANNER)
