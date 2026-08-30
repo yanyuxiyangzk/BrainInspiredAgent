@@ -444,22 +444,30 @@ async def interactive(
                 indicator["active"] = False
 
         async def thinking_spin() -> None:  # pragma: no cover - real TTY animation
+            indicator["active"] = True
             marks = "✻✼✶✷"
             started_at = time.monotonic()
             position = 0
             while True:
                 elapsed = time.monotonic() - started_at
-                stdout.write(f"\r\x1b[2K{marks[position % 4]} 思考中… {elapsed:.0f}s")
+                stdout.write(f"\r\x1b[2K  {marks[position % 4]} 思考中… {elapsed:.0f}s")
                 stdout.flush()
                 position += 1
                 await asyncio.sleep(0.4)
+
+        def stop_thinking() -> None:
+            nonlocal thinking
+            if thinking is not None:
+                thinking.cancel()
+                thinking = None
+            clear_thinking()
 
         def print_delta(delta: str) -> None:
             text = normalizer.feed(delta)
             if not emitted["chars"] and not text:
                 return
             if not emitted["chars"]:
-                clear_thinking()
+                stop_thinking()
                 if images:
                     stdout.write(f"[已附带 {len(images)} 张图片]\n")
             emitted["chars"] += len(delta)
@@ -473,16 +481,12 @@ async def interactive(
         try:
             response = await chat.send(cleaned, on_delta=print_delta, images=images)
         except LlmError as error:
-            if thinking is not None:
-                thinking.cancel()
-            clear_thinking()
+            stop_thinking()
             if emitted["chars"]:
                 stdout.write("\n")
             stderr.write(describe_llm_error(error) + "\n")
             return
-        if thinking is not None:
-            thinking.cancel()
-        clear_thinking()
+        stop_thinking()
         pending_images.clear()
         tail = normalizer.flush()
         if tail:
