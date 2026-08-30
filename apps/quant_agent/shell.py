@@ -251,12 +251,6 @@ async def interactive(
 
         sub_session = PromptSession()
 
-        def rendered_rows(line_count: int) -> tuple[int, int]:
-            """(filler, frame) row split that pins the frame to the bottom."""
-            rows = shutil.get_terminal_size(fallback=(80, 24)).lines
-            frame = 5 + min(max(line_count, 1), 8)
-            return max(0, rows - frame - 1), frame
-
         def build_prompt_app() -> tuple[Application[str], Buffer]:
             buffer = Buffer(
                 multiline=True, completer=SlashCompleter(), complete_while_typing=True,
@@ -271,16 +265,8 @@ async def interactive(
             def _cancel(event: object) -> None:
                 event.app.exit("")  # type: ignore[attr-defined]
 
-            def render_filler() -> StyleAndTextTuples:
-                filler, _ = rendered_rows(len(buffer.document.lines))
-                return [("class:filler", "\n" * max(0, filler - 1))]
-
             layout = Layout(FloatContainer(
                 HSplit([
-                    Window(
-                        content=FormattedTextControl(render_filler),
-                        height=Dimension(min=1, max=200),
-                    ),
                     Window(FormattedTextControl(render_rules), height=1),
                     Window(height=1, char=" "),
                     VSplit([
@@ -297,7 +283,7 @@ async def interactive(
                 ]),
                 floats=[Float(
                     xcursor=True, ycursor=True,
-                    content=CompletionsMenu(max_height=8),
+                    content=CompletionsMenu(max_height=16),
                 )],
             ))
             application: Application[str] = Application(
@@ -306,15 +292,8 @@ async def interactive(
             return application, buffer
 
         async def read_line() -> str:
-            application, buffer = build_prompt_app()
-            text = await application.run_async()
-            # Erase the frame (filler included) and echo the question so the
-            # transcript keeps a compact record of the turn.
-            filler, frame = rendered_rows(len(buffer.document.lines))
-            stdout.write("\x1b[2K" + "\x1b[1A\x1b[2K" * (filler + frame - 1))
-            if text.strip():
-                stdout.write(f"❯ {text}\n")
-            return text
+            application, _ = build_prompt_app()
+            return await application.run_async()
     stdout.write(BANNER)
     stdout.write(welcome_panel(settings))
     stdout.flush()
