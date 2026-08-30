@@ -136,17 +136,27 @@ class WhitespaceNormalizer:
         return text
 
 
-def footer_separator(content: str, tty: bool) -> str:
-    """Produce exactly one blank line between a reply and its footer.
+def blank_line_separator(tail: str, tty: bool) -> str:
+    """Cursor placement after a reply tail so one blank line follows it.
 
-    In TTY mode trailing blank lines already printed by the model are
-    erased with cursor movements so the gap never exceeds one line.
+    ``tail`` is the (possibly empty) trailing newline run that was actually
+    displayed. TTY mode erases surplus blank lines with cursor movements.
     """
-    trailing = len(content) - len(content.rstrip("\n"))
+    newlines = len(tail)
     if not tty:
-        return "" if trailing else "\n"
-    erasures = "\x1b[1A\x1b[2K" * max(0, trailing - 1)
-    return erasures + "\n"
+        return "" if newlines else "\n"
+    if newlines == 0:
+        return "\n\n"
+    if newlines == 1:
+        return "\n"
+    return "\x1b[1A\x1b[2K" * (newlines - 2)
+
+
+def usage_note(response: ModelResponse, seconds: float) -> str:
+    """Compact per-turn usage for the input-area status line."""
+    stats = (f"↑{response.input_tokens} ↓{response.output_tokens} · "
+             if response.input_tokens or response.output_tokens else "")
+    return f"{stats}{seconds:.1f}s"
 
 
 def build_chat_client(settings: Settings) -> GovernedLlmClient | None:
@@ -234,10 +244,3 @@ def format_footer(
     if color:
         footer = f"\x1b[2m{footer}\x1b[0m"
     return f"{pad}{footer}\n"
-
-
-def format_reply(
-    response: ModelResponse, seconds: float, width: int = 0, *, color: bool = False,
-) -> str:
-    """Render a whole reply (content plus footer) for non-streaming callers."""
-    return f"{response.content}\n" + format_footer(response, seconds, width, color=color)

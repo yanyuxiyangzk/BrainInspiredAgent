@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import functools
-import os
 import shlex
 import shutil
 import subprocess
@@ -15,12 +14,23 @@ from pathlib import Path
 from typing import TextIO, cast
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.application import Application
+from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout.containers import Float
-from prompt_toolkit.layout.controls import BufferControl
+from prompt_toolkit.layout import Layout
+from prompt_toolkit.layout.containers import (  # type: ignore[attr-defined]
+    Dimension,
+    Float,
+    FloatContainer,
+    HSplit,
+    VSplit,
+    Window,
+)
+from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.styles import Style
 
 from active_agent_platform.foundation import Settings
@@ -29,13 +39,15 @@ from apps.quant_agent.chat import (
     ChatInputError,
     ChatSession,
     WhitespaceNormalizer,
+    _display_width,
+    blank_line_separator,
     build_chat_client,
     describe_llm_error,
     extract_images,
     find_missing_images,
-    footer_separator,
     format_footer,
     image_data_url,
+    usage_note,
 )
 from apps.quant_agent.clipboard import capture_clipboard
 from apps.quant_agent.commands import COMMAND_SPECS, COMMANDS, command_help
@@ -68,18 +80,17 @@ BANNER = r"""
 """
 
 SHELL_STYLE = Style.from_dict({
-    "prompt": "bold #38bdf8",
+    "arrow": "bold #38bdf8",
+    "rule": "#5c6370",
+    "status-left": "#7a828a",
+    "status-model": "#e5c07b bold",
+    "status-note": "#7dd3fc",
     "completion-menu.completion": "bg:ansidefault #e2e8f0",
     "completion-menu.completion.current": "bg:ansidefault #38bdf8 bold underline",
     "completion-menu.meta.completion": "bg:ansidefault #7dd3fc",
     "completion-menu.meta.completion.current": "bg:ansidefault #38bdf8 bold",
     "scrollbar.background": "bg:ansidefault",
     "scrollbar.button": "bg:ansidefault #38bdf8",
-    "bottom-toolbar": "noreverse bg:ansidefault",
-    "toolbar-model": "#e5c07b bold",
-    "toolbar-sep": "#7a828a",
-    "toolbar-cwd": "#98c379",
-    "toolbar-note": "#7dd3fc",
 })
 
 
@@ -140,40 +151,12 @@ def welcome_panel(settings: Settings) -> str:
     ]) + "\n"
 
 
-def _align_completion_menu(session: PromptSession[str]) -> None:
-    """Anchor menu text under the slash instead of the moving cursor."""
-    floats = _find_floats(session.app.layout.container)
-    for item in floats[:2]:
-        item.xcursor = False
-        item.left = 4
-
-
-def _find_floats(container: object) -> tuple[Float, ...]:
-    floats = getattr(container, "floats", ())
-    if floats:
-        return cast(tuple[Float, ...], tuple(floats))
-    nested = tuple(getattr(container, "children", ()))
-    nested += tuple(
-        value for name in ("content", "body", "alternative_content")
-        if (value := getattr(container, name, None)) is not None
-    )
-    for child in nested:
-        found = _find_floats(child)
-        if found:
-            return found
-    return ()
-
-
 def _shell_key_bindings(
     register_image: Callable[[str], str],
     paste_note: dict[str, str],
 ) -> KeyBindings:  # pragma: no cover - prompt-toolkit callbacks
-    """Enter submits, Ctrl+J adds a newline, Ctrl+V/Alt+V paste the clipboard."""
+    """Ctrl+J adds a newline; Ctrl+V/Alt+V paste the clipboard image or text."""
     bindings = KeyBindings()
-
-    @bindings.add("enter")
-    def _submit(event: object) -> None:
-        event.current_buffer.validate_and_handle()  # type: ignore[attr-defined]
 
     @bindings.add("c-j")
     def _insert_newline(event: object) -> None:
@@ -208,18 +191,6 @@ def _shell_key_bindings(
     return bindings
 
 
-def _set_input_height(session: PromptSession[str], minimum: int = 3) -> None:  # pragma: no cover
-    """Give the multiline editor a comfortable three-line starting height."""
-    for window in session.app.layout.find_all_windows():
-        if (
-            isinstance(window.content, BufferControl)
-            and window.content.buffer is session.default_buffer
-        ):
-            # A plain integer is intentional here: prompt_toolkit otherwise
-            # replaces the default dynamic height during the first render.
-            window.height = minimum
-
-
 async def interactive(
     database_path: Path, stdin: TextIO, stdout: TextIO, stderr: TextIO,
 ) -> int:
@@ -239,6 +210,7 @@ async def interactive(
     await components.engine.wait_started()
     settings = Settings.from_env()
     model_state = {"label": model_label(settings)}
+    usage_state: dict[str, str] = {"text": ""}
     paste_note: dict[str, str] = {"text": ""}
     pending_images: list[str] = []
     image_registry: dict[str, str] = {}
@@ -255,41 +227,83 @@ async def interactive(
             text = text.replace(f"[{token}]", path)
         return text
 
-    live_session: PromptSession[str] | None = None
-    if stdin.isatty() and stdout.isatty():  # pragma: no cover - real TTY integration
-        def toolbar() -> StyleAndTextTuples:
-            cwd = os.getcwd()
-            home = str(Path.home())
-            if cwd.startswith(home):
-                cwd = "~" + cwd[len(home):]
-            fragments: StyleAndTextTuples = []
-            if paste_note["text"]:
-                fragments.append(("class:toolbar-note", paste_note["text"]))
-            fragments.append(("class:toolbar-model", model_state["label"]))
-            fragments.append(("class:toolbar-sep", "  ·  "))
-            fragments.append(("class:toolbar-cwd", cwd))
-            return fragments
+    tty = stdin.isatty() and stdout.isatty()
+    sub_session: PromptSession[str] | None = None
+    if tty:  # pragma: no cover - real TTY integration
+        def render_rules() -> StyleAndTextTuples:
+            width = shutil.get_terminal_size(fallback=(80, 24)).columns
+            return [("class:rule", "─" * max(8, width - 1))]
 
-        live_session = PromptSession(
-            completer=SlashCompleter(), complete_while_typing=True,
-            complete_in_thread=False, style=SHELL_STYLE,
-            include_default_pygments_style=False,
-            multiline=True,
-            key_bindings=_shell_key_bindings(register_image, paste_note),
-            bottom_toolbar=toolbar,
-        )
-        _align_completion_menu(live_session)
+        def render_status() -> StyleAndTextTuples:
+            width = shutil.get_terminal_size(fallback=(80, 24)).columns
+            left = "? 直接输入与模型对话 · /img 或 Ctrl+V 贴图 · /help"
+            right = f"◆ {model_state['label']}"
+            if usage_state["text"]:
+                right += f" · {usage_state['text']}"
+            if paste_note["text"]:
+                right = f"{paste_note['text']}  {right}"
+            pad = max(2, width - _display_width(left) - _display_width(right) - 2)
+            return [
+                ("class:status-left", left),
+                ("class:status-pad", " " * pad),
+                ("class:status-model", right),
+            ]
+
+        sub_session = PromptSession()
+
+        def build_prompt_app() -> Application[str]:
+            buffer = Buffer(
+                multiline=True, completer=SlashCompleter(), complete_while_typing=True,
+            )
+            bindings = _shell_key_bindings(register_image, paste_note)
+
+            @bindings.add("enter")
+            def _accept(event: object) -> None:
+                event.app.exit(event.current_buffer.document.text)  # type: ignore[attr-defined]
+
+            @bindings.add("escape")
+            def _cancel(event: object) -> None:
+                event.app.exit("")  # type: ignore[attr-defined]
+
+            layout = Layout(FloatContainer(
+                HSplit([
+                    Window(FormattedTextControl(render_rules), height=1),
+                    Window(height=1, char=" "),
+                    VSplit([
+                        Window(FormattedTextControl([("class:arrow", "❯ ")]), width=2),
+                        Window(
+                            content=BufferControl(buffer=buffer),
+                            wrap_lines=True,
+                            height=Dimension(min=1, max=8),
+                        ),
+                    ]),
+                    Window(height=1, char=" "),
+                    Window(FormattedTextControl(render_rules), height=1),
+                    Window(FormattedTextControl(render_status), height=1),
+                ]),
+                floats=[Float(
+                    xcursor=True, ycursor=True,
+                    content=CompletionsMenu(max_height=6),
+                )],
+            ))
+            application: Application[str] = Application(
+                layout=layout, key_bindings=bindings, style=SHELL_STYLE, full_screen=False,
+            )
+            return application
+
+        async def read_line() -> str:
+            return await build_prompt_app().run_async()
     stdout.write(BANNER)
     stdout.write(welcome_panel(settings))
     stdout.flush()
     async def ask(prompt: str) -> str:
-        if live_session is not None:
-            return (await live_session.prompt_async(prompt)).strip()
+        if sub_session is not None:
+            return (await sub_session.prompt_async(prompt)).strip()
         stdout.write(prompt); stdout.flush()
         return (await asyncio.to_thread(stdin.readline)).strip()
     async def ask_secret(prompt: str) -> str:
-        if live_session is not None:
-            return (await live_session.prompt_async(prompt, is_password=True)).strip()
+        if sub_session is not None:
+            return (await sub_session.prompt_async(prompt, is_password=True)).strip()
         stdout.write(prompt); stdout.flush()
         return (await asyncio.to_thread(stdin.readline)).strip()
     chat: ChatSession | None = None
@@ -344,17 +358,17 @@ async def interactive(
         tail = normalizer.flush()
         if tail:
             stdout.write(tail)
-        tty = live_session is not None
-        width = shutil.get_terminal_size(fallback=(80, 24)).columns if tty else 0
-        footer = footer_separator(response.content, tty) + format_footer(
-            response, time.monotonic() - started, width, color=tty,
-        )
-        stdout.write(footer)
+        seconds = time.monotonic() - started
+        stdout.write(blank_line_separator(tail, tty))
+        if tty:
+            usage_state["text"] = usage_note(response, seconds)
+        else:
+            stdout.write(format_footer(response, seconds))
     try:
         while True:
-            if live_session is not None:  # pragma: no cover - real TTY integration
+            if tty:  # pragma: no cover - real TTY integration
                 try:
-                    line = await live_session.prompt_async([("class:prompt", "bia> ")])
+                    line = await read_line()
                 except (EOFError, KeyboardInterrupt):
                     break
                 line += "\n"
@@ -379,7 +393,7 @@ async def interactive(
             if raw == "/model":
                 selection = await configure_model(
                     Settings.from_env(), ask=ask, ask_secret=ask_secret, stdout=stdout,
-                    stderr=stderr, interactive=live_session is not None,
+                    stderr=stderr, interactive=tty,
                 )
                 if selection is not None:
                     model_state["label"] = selection.model

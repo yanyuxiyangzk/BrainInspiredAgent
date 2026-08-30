@@ -25,11 +25,14 @@ from apps.quant_agent.chat import (
     DEFAULT_SYSTEM_PROMPT,
     ChatInputError,
     ChatSession,
+    WhitespaceNormalizer,
+    blank_line_separator,
     build_chat_client,
     describe_llm_error,
     extract_images,
     format_footer,
-    format_reply,
+    to_wsl_path,
+    usage_note,
 )
 
 
@@ -84,14 +87,6 @@ async def test_chat_session_keeps_multi_turn_context() -> None:
     assert [message.role for message in model.requests[2].messages] == ["system", "user"]
 
 
-def test_format_reply_includes_usage_footer() -> None:
-    text = format_reply(
-        ModelResponse("内容", "glm-4-flash", "glm", "stop", 12, 34), 1.234,
-    )
-    assert text.startswith("内容\n")
-    assert "输入 12 / 输出 34 tokens" in text and "1.2s" in text
-
-
 def test_format_footer_omits_tokens_when_absent() -> None:
     with_tokens = format_footer(
         ModelResponse("内容", "glm-4-flash", "glm", "stop", 12, 34), 1.2,
@@ -104,17 +99,15 @@ def test_format_footer_omits_tokens_when_absent() -> None:
     assert "tokens" not in without_tokens
 
 
-def test_format_reply_right_aligns_footer_in_tty() -> None:
-    from apps.quant_agent.chat import _display_width
-
-    text = format_reply(
-        ModelResponse("内容", "glm-4-flash", "glm", "stop", 12, 34), 1.2, 60, color=True,
-    )
-    first, footer = text.splitlines()
-    assert first == "内容"
-    assert footer.startswith(" ") and "\x1b[2m" in footer and footer.endswith("\x1b[0m")
-    plain = footer.replace("\x1b[2m", "").replace("\x1b[0m", "")
-    assert 40 <= _display_width(plain) <= 59
+def test_usage_note_and_blank_separator_for_status_line() -> None:
+    assert usage_note(ModelResponse("x", "m", "p", "stop", 37, 259), 11.04) == "↑37 ↓259 · 11.0s"
+    assert usage_note(ModelResponse("x", "m", "p", "stop", 0, 0), 2.5) == "2.5s"
+    assert blank_line_separator("", tty=False) == "\n"
+    assert blank_line_separator("\n", tty=False) == ""
+    assert blank_line_separator("", tty=True) == "\n\n"
+    assert blank_line_separator("\n", tty=True) == "\n"
+    assert blank_line_separator("\n\n", tty=True) == ""
+    assert blank_line_separator("\n\n\n\n", tty=True) == "\x1b[1A\x1b[2K" * 2
 
 
 def test_describe_llm_error_maps_guidance() -> None:
@@ -234,7 +227,6 @@ async def test_governed_stream_retries_before_first_delta() -> None:
 
 
 def test_to_wsl_path_maps_windows_drives() -> None:
-    from apps.quant_agent.chat import to_wsl_path
 
     assert to_wsl_path("D:\\Program\\Weixin\\x.png") == "/mnt/d/Program/Weixin/x.png"
     assert to_wsl_path("D:/Program/Weixin/x.png") == "/mnt/d/Program/Weixin/x.png"
@@ -280,7 +272,6 @@ def test_find_missing_images_reports_missing_paths(tmp_path: Path) -> None:
 
 
 def test_whitespace_normalizer_unifies_blank_rhythm() -> None:
-    from apps.quant_agent.chat import WhitespaceNormalizer
 
     normalizer = WhitespaceNormalizer()
     assert normalizer.feed("\n\n\n开头不留空行") == "开头不留空行"
@@ -292,17 +283,6 @@ def test_whitespace_normalizer_unifies_blank_rhythm() -> None:
     run_away = WhitespaceNormalizer()
     assert run_away.feed("紧凑一次给足\n\n") == "紧凑一次给足"
     assert run_away.feed("\n\n\n第二段") == "\n\n第二段"
-
-
-def test_footer_separator_leaves_exactly_one_blank_line() -> None:
-    from apps.quant_agent.chat import footer_separator
-
-    assert footer_separator("内容", tty=False) == "\n"
-    assert footer_separator("内容\n", tty=False) == ""
-    assert footer_separator("内容\n\n\n", tty=False) == ""
-    assert footer_separator("内容\n", tty=True) == "\n"
-    assert footer_separator("内容\n\n", tty=True) == "\x1b[1A\x1b[2K\n"
-    assert footer_separator("内容\n\n\n\n", tty=True) == "\x1b[1A\x1b[2K" * 3 + "\n"
 
 
 @pytest.mark.asyncio

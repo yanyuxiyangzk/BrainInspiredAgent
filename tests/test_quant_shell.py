@@ -16,8 +16,6 @@ from apps.quant_agent.commands import command_help
 from apps.quant_agent.shell import (
     COMMANDS,
     SlashCompleter,
-    _align_completion_menu,
-    _find_floats,
     slash_arguments,
 )
 
@@ -52,15 +50,6 @@ def test_live_completion_filters_as_the_user_types() -> None:
         "/health", "/help",
     ]
     assert not list(completer.get_completions(Document("/market "), event))
-
-
-def test_completion_menu_is_anchored_under_slash() -> None:
-    from prompt_toolkit import PromptSession
-
-    session: PromptSession[str] = PromptSession()
-    _align_completion_menu(session)
-    floats = _find_floats(session.app.layout.container)
-    assert all(not item.xcursor and item.left == 4 for item in floats[:2])
 
 
 def test_welcome_panel_reflects_model_state() -> None:
