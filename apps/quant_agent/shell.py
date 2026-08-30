@@ -277,9 +277,9 @@ async def interactive(
                             height=Dimension(min=1, max=8),
                         ),
                     ]),
+                    Window(FormattedTextControl(render_status), height=1),
                     Window(height=1, char=" "),
                     Window(FormattedTextControl(render_rules), height=1),
-                    Window(FormattedTextControl(render_status), height=1),
                 ]),
                 floats=[Float(
                     xcursor=True, ycursor=True,
