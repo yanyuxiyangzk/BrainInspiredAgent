@@ -77,6 +77,7 @@ SHELL_STYLE = Style.from_dict({
     "toolbar-model": "#e5c07b bold",
     "toolbar-sep": "#7a828a",
     "toolbar-cwd": "#98c379",
+    "toolbar-note": "#7dd3fc",
 })
 
 
@@ -163,6 +164,7 @@ def _find_floats(container: object) -> tuple[Float, ...]:
 
 def _shell_key_bindings(
     register_image: Callable[[str], str],
+    paste_note: dict[str, str],
 ) -> KeyBindings:  # pragma: no cover - prompt-toolkit callbacks
     """Enter submits, Ctrl+J adds a newline, Ctrl+V/Alt+V paste the clipboard."""
     bindings = KeyBindings()
@@ -181,19 +183,24 @@ def _shell_key_bindings(
     @bindings.add("escape", "v")
     def _paste_clipboard(event: object) -> None:
         buffer = event.current_buffer  # type: ignore[attr-defined]
+        app = event.app  # type: ignore[attr-defined]
         loop = asyncio.get_running_loop()
 
         def worker() -> None:
             kind, payload = capture_clipboard()
 
             def apply() -> None:
+                paste_note["text"] = ""
                 if kind == "image" and payload:
                     buffer.insert_text(f"[{register_image(payload)}]")
                 elif kind == "text" and payload:
                     buffer.insert_text(payload)
+                app.invalidate()
 
             loop.call_soon_threadsafe(apply)
 
+        paste_note["text"] = " 读取剪贴板中…"
+        app.invalidate()
         loop.run_in_executor(None, worker)
 
     return bindings
@@ -230,6 +237,7 @@ async def interactive(
     await components.engine.wait_started()
     settings = Settings.from_env()
     model_state = {"label": model_label(settings)}
+    paste_note: dict[str, str] = {"text": ""}
     pending_images: list[str] = []
     image_registry: dict[str, str] = {}
     image_counter = {"n": 0}
@@ -252,11 +260,12 @@ async def interactive(
             home = str(Path.home())
             if cwd.startswith(home):
                 cwd = "~" + cwd[len(home):]
-            fragments: StyleAndTextTuples = [
-                ("class:toolbar-model", model_state["label"]),
-                ("class:toolbar-sep", "  ·  "),
-                ("class:toolbar-cwd", cwd),
-            ]
+            fragments: StyleAndTextTuples = []
+            if paste_note["text"]:
+                fragments.append(("class:toolbar-note", paste_note["text"]))
+            fragments.append(("class:toolbar-model", model_state["label"]))
+            fragments.append(("class:toolbar-sep", "  ·  "))
+            fragments.append(("class:toolbar-cwd", cwd))
             return fragments
 
         live_session = PromptSession(
@@ -264,7 +273,7 @@ async def interactive(
             complete_in_thread=False, style=SHELL_STYLE,
             include_default_pygments_style=False,
             multiline=True,
-            key_bindings=_shell_key_bindings(register_image),
+            key_bindings=_shell_key_bindings(register_image, paste_note),
             bottom_toolbar=toolbar,
         )
         _align_completion_menu(live_session)
