@@ -54,7 +54,7 @@ HELP = command_help()
 
 # Rows pre-reserved before each prompt so the framed input always fits on
 # screen: rule + pad + input (up to 8 lines) + pad + rule + status + slack.
-PROMPT_RESERVED_ROWS = 18
+PROMPT_RESERVED_ROWS = 6
 
 BANNER = r"""
                    ╭───────╮     ╭───────╮
@@ -120,6 +120,13 @@ def _build_tag() -> str:
     return result.stdout.strip() or "dev"
 
 
+def menu_viewport(total: int, index: int, offset: int, visible: int) -> int:
+    """Scroll offset that keeps ``index`` inside a ``visible``-row window."""
+    offset = max(offset, index - visible + 1)
+    offset = min(offset, index)
+    return max(0, min(offset, max(0, total - visible)))
+
+
 def model_label(settings: Settings) -> str:
     """Compact model name for the Codex-style input toolbar."""
     key_ready = bool(settings.model_api_key) or settings.model_provider == OLLAMA_PROVIDER
@@ -139,7 +146,8 @@ def welcome_panel(settings: Settings) -> str:
         model_line = f"{settings.model_name or settings.model_url} · 缺少 API Key，输入 /model 补充"
     else:
         model_line = "未配置 · 输入 /model 选择模型"
-    rule = "        " + "─" * 60
+    width = shutil.get_terminal_size(fallback=(80, 24)).columns - 1
+    rule = "─" * max(8, width)
     return "\n".join([
         rule,
         f"          模型   {model_line}",
@@ -309,15 +317,28 @@ async def interactive(
                 else:
                     event.current_buffer.cursor_down()  # type: ignore[attr-defined]
 
+            menu_offset = [0]
+
+            def visible_menu_rows(total: int) -> int:
+                rows = shutil.get_terminal_size(fallback=(80, 24)).lines
+                return max(3, min(total, 14, rows - 8))
+
             def render_menu() -> StyleAndTextTuples:
                 if menu_hidden[0]:
                     return []
-                completions = current_completions()[:12]
+                completions = current_completions()
                 if not completions:
                     return []
+                shown = visible_menu_rows(len(completions))
+                menu_offset[0] = menu_viewport(
+                    len(completions), menu_index[0], menu_offset[0], shown,
+                )
                 width = max(len(item.text) for item in completions)
                 rows: StyleAndTextTuples = []
-                for position, item in enumerate(completions):
+                for position, item in enumerate(
+                    completions[menu_offset[0]: menu_offset[0] + shown],
+                    start=menu_offset[0],
+                ):
                     style = "class:menu-selected" if position == menu_index[0] else "class:menu-row"
                     summary = item.display_meta_text or ""
                     rows.append((style, f"  {item.text.ljust(width)}  {summary}\n"))

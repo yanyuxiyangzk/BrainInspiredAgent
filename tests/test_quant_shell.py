@@ -16,8 +16,17 @@ from apps.quant_agent.commands import command_help
 from apps.quant_agent.shell import (
     COMMANDS,
     SlashCompleter,
+    menu_viewport,
     slash_arguments,
 )
+
+
+def test_menu_viewport_scrolls_to_keep_selection_visible() -> None:
+    assert menu_viewport(total=25, index=0, offset=0, visible=10) == 0
+    assert menu_viewport(total=25, index=12, offset=0, visible=10) == 3
+    assert menu_viewport(total=25, index=24, offset=0, visible=10) == 15
+    assert menu_viewport(total=25, index=3, offset=15, visible=10) == 3
+    assert menu_viewport(total=5, index=4, offset=0, visible=10) == 0
 
 
 def test_slash_command_aliases() -> None:
