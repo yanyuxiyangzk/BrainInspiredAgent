@@ -233,6 +233,28 @@ async def test_governed_stream_retries_before_first_delta() -> None:
     assert text == "恢复的回复" and len(model.requests) == 2
 
 
+def test_to_wsl_path_maps_windows_drives() -> None:
+    from apps.quant_agent.chat import to_wsl_path
+
+    assert to_wsl_path("D:\\Program\\Weixin\\x.png") == "/mnt/d/Program/Weixin/x.png"
+    assert to_wsl_path("D:/Program/Weixin/x.png") == "/mnt/d/Program/Weixin/x.png"
+    assert to_wsl_path("/tmp/keep.png") == "/tmp/keep.png"
+
+
+def test_extract_images_attaches_windows_drive_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    image = tmp_path / "paste.png"
+    image.write_bytes(b"\x89PNG-fake")
+    monkeypatch.setattr(
+        "apps.quant_agent.chat.to_wsl_path",
+        lambda p: str(image) if p.startswith("D:") else p,
+    )
+    text, images = extract_images("看 D:\\Weixin\\paste.png 好了")
+    assert len(images) == 1 and images[0].startswith("data:image/png;base64,")
+    assert text == "看 好了"
+
+
 def test_extract_images_reads_existing_and_keeps_missing(tmp_path: Path) -> None:
     image = tmp_path / "shot.png"
     image.write_bytes(b"\x89PNG-fake")

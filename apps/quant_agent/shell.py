@@ -9,6 +9,7 @@ import shlex
 import shutil
 import subprocess
 import time
+from collections.abc import Callable
 from io import StringIO
 from pathlib import Path
 from typing import TextIO, cast
@@ -159,7 +160,9 @@ def _find_floats(container: object) -> tuple[Float, ...]:
     return ()
 
 
-def _shell_key_bindings() -> KeyBindings:  # pragma: no cover - prompt-toolkit callbacks
+def _shell_key_bindings(
+    register_image: Callable[[str], str],
+) -> KeyBindings:  # pragma: no cover - prompt-toolkit callbacks
     """Enter submits, Ctrl+J adds a newline, Ctrl+V/Alt+V paste the clipboard."""
     bindings = KeyBindings()
 
@@ -184,7 +187,7 @@ def _shell_key_bindings() -> KeyBindings:  # pragma: no cover - prompt-toolkit c
 
             def apply() -> None:
                 if kind == "image" and payload:
-                    buffer.insert_text(f"[图片:{payload}]")
+                    buffer.insert_text(f"[{register_image(payload)}]")
                 elif kind == "text" and payload:
                     buffer.insert_text(payload)
 
@@ -226,6 +229,21 @@ async def interactive(
     await components.engine.wait_started()
     settings = Settings.from_env()
     model_state = {"label": model_label(settings)}
+    pending_images: list[str] = []
+    image_registry: dict[str, str] = {}
+    image_counter = {"n": 0}
+
+    def register_image(path: str) -> str:
+        image_counter["n"] += 1
+        token = f"图片#{image_counter['n']}"
+        image_registry[token] = path
+        return token
+
+    def resolve_image_tokens(text: str) -> str:
+        for token, path in image_registry.items():
+            text = text.replace(f"[{token}]", path)
+        return text
+
     live_session: PromptSession[str] | None = None
     if stdin.isatty() and stdout.isatty():  # pragma: no cover - real TTY integration
         def toolbar() -> StyleAndTextTuples:
@@ -245,7 +263,7 @@ async def interactive(
             complete_in_thread=False, style=SHELL_STYLE,
             include_default_pygments_style=False,
             multiline=True,
-            key_bindings=_shell_key_bindings(),
+            key_bindings=_shell_key_bindings(register_image),
             bottom_toolbar=toolbar,
         )
         _align_completion_menu(live_session)
@@ -263,12 +281,11 @@ async def interactive(
         stdout.write(prompt); stdout.flush()
         return (await asyncio.to_thread(stdin.readline)).strip()
     chat: ChatSession | None = None
-    pending_images: list[str] = []
 
     async def chat_turn(text: str) -> None:
         nonlocal chat
         try:
-            cleaned, images = extract_images(text)
+            cleaned, images = extract_images(resolve_image_tokens(text))
             for path in pending_images:
                 images = images + (image_data_url(path),)
         except ChatInputError as error:
@@ -370,11 +387,9 @@ async def interactive(
             if raw == "/img":
                 kind, payload = capture_clipboard()
                 if kind == "image" and payload:
+                    token = register_image(payload)
                     pending_images.append(payload)
-                    stdout.write(
-                        f"✓ 已从剪贴板添加 1 张图片（共 {len(pending_images)} 张），"
-                        "下一条消息将自动附带。\n"
-                    )
+                    stdout.write(f"✓ 已添加 {token}，下一条消息将自动附带。\n")
                 elif kind == "text" and payload:
                     stdout.write("剪贴板里是文本，直接输入发送即可（/img 只附带图片）。\n")
                 else:

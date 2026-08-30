@@ -44,8 +44,17 @@ class ChatInputError(RuntimeError):
     """Invalid chat input, such as an over-sized image attachment."""
 
 
+def to_wsl_path(path: str) -> str:
+    """Map windows-style paths (``D:\\foo\\bar.png``) onto ``/mnt/d/...``."""
+    posix = path.replace("\\", "/").strip()
+    if len(posix) > 2 and posix[1] == ":":
+        return f"/mnt/{posix[0].lower()}{posix[2:]}"
+    return posix
+
+
 def image_data_url(path: str) -> str:
     """Encode one image file as a base64 data URL, enforcing the size cap."""
+    path = to_wsl_path(path)
     if not os.path.isfile(path):
         raise ChatInputError(f"图片不存在：{path}")
     if os.path.getsize(path) > MAX_IMAGE_BYTES:
@@ -66,9 +75,10 @@ def extract_images(text: str) -> tuple[str, tuple[str, ...]]:
     images: list[str] = []
 
     def _collect(path: str) -> str:
-        if not os.path.isfile(path):
+        normalized = to_wsl_path(path)
+        if not os.path.isfile(normalized):
             return path
-        images.append(image_data_url(path))
+        images.append(image_data_url(normalized))
         return ""
 
     text = IMAGE_PLACEHOLDER.sub(lambda match: _collect(match.group(1)), text)

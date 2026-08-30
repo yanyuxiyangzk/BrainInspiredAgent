@@ -293,7 +293,7 @@ async def test_shell_img_command_attaches_clipboard_image(
     )
     assert code == 0 and not stderr.getvalue()
     output = stdout.getvalue()
-    assert "已从剪贴板添加" in output and "[已附带 1 张图片]" in output
+    assert "已添加 图片#1" in output and "[已附带 1 张图片]" in output
     assert "看到了图片" in output
     sent = models[0].requests[0].messages[-1]
     assert sent.images and sent.images[0].startswith("data:image/png;base64,")
