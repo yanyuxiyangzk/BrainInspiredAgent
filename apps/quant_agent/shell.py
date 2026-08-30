@@ -8,26 +8,11 @@ import shlex
 import shutil
 import subprocess
 import time
-from collections.abc import Callable
 from io import StringIO
 from pathlib import Path
 from typing import TextIO, cast
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.application import Application
-from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.document import Document
-from prompt_toolkit.formatted_text import StyleAndTextTuples
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Layout
-from prompt_toolkit.layout.containers import (  # type: ignore[attr-defined]
-    Dimension,
-    HSplit,
-    VSplit,
-    Window,
-)
-from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.styles import Style
 
 from active_agent_platform.foundation import Settings
@@ -36,7 +21,6 @@ from apps.quant_agent.chat import (
     ChatInputError,
     ChatSession,
     WhitespaceNormalizer,
-    _display_width,
     blank_line_separator,
     build_chat_client,
     describe_llm_error,
@@ -47,18 +31,11 @@ from apps.quant_agent.chat import (
     usage_note,
 )
 from apps.quant_agent.clipboard import capture_clipboard
-from apps.quant_agent.commands import COMMAND_SPECS, COMMANDS, command_help
+from apps.quant_agent.commands import COMMANDS, command_help
 from apps.quant_agent.model_picker import OLLAMA_PROVIDER, configure_model
+from apps.quant_agent.tui import BiaTui
 
 HELP = command_help()
-
-# Rows pre-reserved before each prompt so the framed input always fits on
-# screen: rule + pad + input (up to 8 lines) + pad + rule + status + slack.
-PROMPT_RESERVED_ROWS = 18
-
-# Ctrl+C returns this sentinel from the prompt, which read_line turns into
-# a KeyboardInterrupt so the shell exits like it did before the redesign.
-CTRL_C_SENTINEL = "\x00bia-quit"
 
 BANNER = r"""
                    ╭───────╮     ╭───────╮
@@ -95,25 +72,6 @@ SHELL_STYLE = Style.from_dict({
     "menu-selected": "bg:#38bdf8 #08111a bold",
 })
 
-STATUS_HINTS = "? 直接输入与模型对话 · /img 或 Ctrl+V 贴图 · /help"
-
-
-class SlashCompleter(Completer):
-    """Show the slash-command menu continuously while the user types."""
-
-    def get_completions(self, document: Document, complete_event: object):  # type: ignore[no-untyped-def]
-        del complete_event
-        text = document.text_before_cursor
-        if not text.startswith("/") or " " in text:
-            return
-        for spec in COMMAND_SPECS:
-            if spec.name.startswith(text):
-                yield Completion(
-                    spec.name, start_position=-len(text), display=spec.name,
-                    display_meta=spec.summary,
-                )
-
-
 @functools.lru_cache(maxsize=1)
 def _build_tag() -> str:
     """Short git hash of the running source tree, so builds are distinguishable."""
@@ -125,13 +83,6 @@ def _build_tag() -> str:
     except OSError:
         return "dev"
     return result.stdout.strip() or "dev"
-
-
-def menu_viewport(total: int, index: int, offset: int, visible: int) -> int:
-    """Scroll offset that keeps ``index`` inside a ``visible``-row window."""
-    offset = max(offset, index - visible + 1)
-    offset = min(offset, index)
-    return max(0, min(offset, max(0, total - visible)))
 
 
 def model_label(settings: Settings) -> str:
@@ -163,51 +114,6 @@ def welcome_panel(settings: Settings) -> str:
     ]) + "\n"
 
 
-def _shell_key_bindings(
-    register_image: Callable[[str], str],
-    paste_note: dict[str, str],
-) -> KeyBindings:  # pragma: no cover - prompt-toolkit callbacks
-    """Ctrl+J adds a newline; Ctrl+V/Alt+V paste; Ctrl+C quits bia."""
-    bindings = KeyBindings()
-
-    @bindings.add("c-c")
-    def _quit(event: object) -> None:
-        # Ctrl+C 退出 bia：返回哨兵值，read_line 检测后抛出 KeyboardInterrupt。
-        event.app.exit(CTRL_C_SENTINEL)  # type: ignore[attr-defined]
-
-    @bindings.add("c-j")
-    def _insert_newline(event: object) -> None:
-        # ``prompt_toolkit``'s event exposes the current buffer; keeping this
-        # binding local avoids changing the global editing behaviour.
-        event.current_buffer.insert_text("\n")  # type: ignore[attr-defined]
-
-    @bindings.add("c-v")
-    @bindings.add("escape", "v")
-    def _paste_clipboard(event: object) -> None:
-        buffer = event.current_buffer  # type: ignore[attr-defined]
-        app = event.app  # type: ignore[attr-defined]
-        loop = asyncio.get_running_loop()
-
-        def worker() -> None:
-            kind, payload = capture_clipboard()
-
-            def apply() -> None:
-                paste_note["text"] = ""
-                if kind == "image" and payload:
-                    buffer.insert_text(f"[{register_image(payload)}]")
-                elif kind == "text" and payload:
-                    buffer.insert_text(payload)
-                app.invalidate()
-
-            loop.call_soon_threadsafe(apply)
-
-        paste_note["text"] = " 读取剪贴板中…"
-        app.invalidate()
-        loop.run_in_executor(None, worker)
-
-    return bindings
-
-
 async def interactive(
     database_path: Path, stdin: TextIO, stdout: TextIO, stderr: TextIO,
 ) -> int:
@@ -227,8 +133,6 @@ async def interactive(
     await components.engine.wait_started()
     settings = Settings.from_env()
     model_state = {"label": model_label(settings)}
-    usage_state: dict[str, str] = {"text": ""}
-    paste_note: dict[str, str] = {"text": ""}
     pending_images: list[str] = []
     image_registry: dict[str, str] = {}
     image_counter = {"n": 0}
@@ -245,156 +149,18 @@ async def interactive(
         return text
 
     tty = stdin.isatty() and stdout.isatty()
+    real_stdout = stdout
+    tui: BiaTui | None = None
     sub_session: PromptSession[str] | None = None
     if tty:  # pragma: no cover - real TTY integration
-        def render_rules() -> StyleAndTextTuples:
-            width = shutil.get_terminal_size(fallback=(80, 24)).columns
-            return [("class:rule", "─" * max(8, width - 1))]
+        from apps.quant_agent.tui import QUIT_SENTINEL, TranscriptWriter
 
-        def render_status() -> StyleAndTextTuples:
-            width = shutil.get_terminal_size(fallback=(80, 24)).columns
-            left = STATUS_HINTS
-            right = f"◆ {model_state['label']}"
-            if usage_state["text"]:
-                right += f" · {usage_state['text']}"
-            if paste_note["text"]:
-                right = f"{paste_note['text']}  {right}"
-            pad = max(2, width - _display_width(left) - _display_width(right) - 2)
-            return [
-                ("class:status-left", left),
-                ("class:status-pad", " " * pad),
-                ("class:status-model", right),
-            ]
-
+        tui = BiaTui(lambda: model_state["label"])
+        tui.on_image = register_image
+        stdout = cast(TextIO, TranscriptWriter(tui))
+        stderr = cast(TextIO, TranscriptWriter(tui))
         sub_session = PromptSession()
-
-        def build_prompt_app() -> tuple[Application[str], Buffer]:
-            menu_index = [0]
-            menu_hidden = [False]
-
-            def current_completions() -> list[Completion]:
-                state = buffer.complete_state
-                return list(state.completions) if state and state.completions else []
-
-            def on_text_changed(buffer: Buffer) -> None:
-                menu_index[0] = 0
-                menu_hidden[0] = False
-
-            buffer = Buffer(
-                multiline=True, completer=SlashCompleter(), complete_while_typing=True,
-                on_text_changed=on_text_changed,
-            )
-            bindings = _shell_key_bindings(register_image, paste_note)
-
-            @bindings.add("enter")
-            def _accept(event: object) -> None:
-                completions = current_completions()
-                index = menu_index[0]
-                if completions and index < len(completions):
-                    chosen = completions[index].text
-                    if chosen != buffer.text:
-                        buffer.text = chosen
-                        buffer.cursor_position = len(chosen)
-                        event.app.invalidate()  # type: ignore[attr-defined]
-                        return
-                event.app.exit(event.current_buffer.document.text)  # type: ignore[attr-defined]
-
-            @bindings.add("escape")
-            def _cancel(event: object) -> None:
-                event.app.exit("")  # type: ignore[attr-defined]
-
-            @bindings.add("up")
-            def _menu_up(event: object) -> None:
-                if current_completions() and not menu_hidden[0]:
-                    menu_index[0] = max(0, menu_index[0] - 1)
-                    event.app.invalidate()  # type: ignore[attr-defined]
-                else:
-                    event.current_buffer.cursor_up()  # type: ignore[attr-defined]
-
-            @bindings.add("down")
-            def _menu_down(event: object) -> None:
-                completions = current_completions()
-                if completions and not menu_hidden[0]:
-                    menu_index[0] = min(len(completions) - 1, menu_index[0] + 1)
-                    event.app.invalidate()  # type: ignore[attr-defined]
-                else:
-                    event.current_buffer.cursor_down()  # type: ignore[attr-defined]
-
-            menu_offset = [0]
-
-            def visible_menu_rows(total: int) -> int:
-                rows = shutil.get_terminal_size(fallback=(80, 24)).lines
-                return max(3, min(total, 12, rows - 8))
-
-            def render_menu() -> StyleAndTextTuples:
-                if menu_hidden[0]:
-                    return []
-                completions = current_completions()
-                if not completions:
-                    return []
-                shown = visible_menu_rows(len(completions))
-                menu_offset[0] = menu_viewport(
-                    len(completions), menu_index[0], menu_offset[0], shown,
-                )
-                width = max(len(item.text) for item in completions)
-                rows: StyleAndTextTuples = []
-                for position, item in enumerate(
-                    completions[menu_offset[0]: menu_offset[0] + shown],
-                    start=menu_offset[0],
-                ):
-                    style = "class:menu-selected" if position == menu_index[0] else "class:menu-row"
-                    summary = item.display_meta_text or ""
-                    rows.append((style, f"  {item.text.ljust(width)}  {summary}\n"))
-                return rows
-
-            def render_filler() -> StyleAndTextTuples:
-                # 尾部填充行吸收预留区的剩余行数：框体（横线+输入+状态行）
-                # 保持紧凑，总高恒等于预留的 18 行，状态行不会被顶远。
-                input_rows = min(max(len(buffer.document.lines), 1), 8)
-                menu_rows = 0 if menu_hidden[0] else min(len(current_completions()), 12)
-                slack = max(0, PROMPT_RESERVED_ROWS - 5 - input_rows - menu_rows)
-                if slack <= 0:
-                    return []
-                return [("class:filler", "\n" * (slack - 1))]
-
-            layout = Layout(HSplit([
-                Window(FormattedTextControl(render_rules), height=1),
-                VSplit([
-                    Window(FormattedTextControl([("class:arrow", "❯ ")]), width=2),
-                    Window(
-                        content=BufferControl(buffer=buffer),
-                        wrap_lines=True,
-                        height=Dimension(min=1, max=8),
-                    ),
-                ]),
-                Window(FormattedTextControl(render_status), height=1),
-                Window(FormattedTextControl(render_rules), height=1),
-                Window(
-                    content=FormattedTextControl(render_menu),
-                    height=Dimension(min=0, max=12),
-                ),
-                Window(
-                    content=FormattedTextControl(render_filler),
-                    height=Dimension(min=0, max=PROMPT_RESERVED_ROWS),
-                ),
-            ]))
-            application: Application[str] = Application(
-                layout=layout, key_bindings=bindings, style=SHELL_STYLE, full_screen=False,
-            )
-            return application, buffer
-
-        async def read_line() -> str:
-            # 预留 18 行并回退到预留区顶部：框体 + 菜单 + 尾部填充总高恒为 18，
-            # 提交后擦除整块并回显问题，滚动记录保持紧凑。
-            stdout.write("\n" * PROMPT_RESERVED_ROWS + "\x1b[1A" * PROMPT_RESERVED_ROWS)
-            application, _ = build_prompt_app()
-            text = await application.run_async()
-            stdout.write("\x1b[2K" + "\x1b[1A\x1b[2K" * (PROMPT_RESERVED_ROWS - 1))
-            if text == CTRL_C_SENTINEL:
-                raise KeyboardInterrupt
-            if text.strip():
-                stdout.write(f"❯ {text}\n")
-            return text
+        tui.start()
     stdout.write(BANNER)
     stdout.write(welcome_panel(settings))
     stdout.flush()
@@ -435,75 +201,53 @@ async def interactive(
             chat = ChatSession(client, label=model_state["label"])
         normalizer = WhitespaceNormalizer()
         emitted = {"chars": 0}
-        thinking: asyncio.Task[None] | None = None
-        indicator = {"active": False}
-
-        def clear_thinking() -> None:
-            if indicator["active"]:
-                stdout.write("\r\x1b[2K")
-                indicator["active"] = False
-
-        async def thinking_spin() -> None:  # pragma: no cover - real TTY animation
-            indicator["active"] = True
-            marks = "✻✼✶✷"
-            started_at = time.monotonic()
-            position = 0
-            while True:
-                elapsed = time.monotonic() - started_at
-                stdout.write(f"\r\x1b[2K  {marks[position % 4]} 思考中… {elapsed:.0f}s")
-                stdout.flush()
-                position += 1
-                await asyncio.sleep(0.4)
-
-        def stop_thinking() -> None:
-            nonlocal thinking
-            if thinking is not None:
-                thinking.cancel()
-                thinking = None
-            clear_thinking()
 
         def print_delta(delta: str) -> None:
             text = normalizer.feed(delta)
             if not emitted["chars"] and not text:
                 return
             if not emitted["chars"]:
-                stop_thinking()
+                if tui is not None:
+                    tui.stop_thinking()
                 if images:
                     stdout.write(f"[已附带 {len(images)} 张图片]\n")
             emitted["chars"] += len(delta)
             stdout.write(text)
             stdout.flush()
 
-        if tty:
-            stdout.write(f"{STATUS_HINTS}    ◆ {model_state['label']}\n")
-            thinking = asyncio.create_task(thinking_spin())
+        if tui is not None:
+            tui.start_thinking()
         started = time.monotonic()
         try:
             response = await chat.send(cleaned, on_delta=print_delta, images=images)
         except LlmError as error:
-            stop_thinking()
+            if tui is not None:
+                tui.stop_thinking()
             if emitted["chars"]:
                 stdout.write("\n")
             stderr.write(describe_llm_error(error) + "\n")
             return
-        stop_thinking()
+        if tui is not None:
+            tui.stop_thinking()
         pending_images.clear()
         tail = normalizer.flush()
         if tail:
             stdout.write(tail)
         seconds = time.monotonic() - started
-        stdout.write(blank_line_separator(tail, tty))
-        if tty:
-            usage_state["text"] = usage_note(response, seconds)
+        if tui is not None:
+            tui.set_usage(usage_note(response, seconds))
         else:
+            stdout.write(blank_line_separator(tail, tty=False))
             stdout.write(format_footer(response, seconds))
     try:
         while True:
             if tty:  # pragma: no cover - real TTY integration
-                try:
-                    line = await read_line()
-                except (EOFError, KeyboardInterrupt):
+                assert tui is not None
+                line = await tui.next_input()
+                if line == QUIT_SENTINEL:
                     break
+                if line.strip():
+                    stdout.write(f"❯ {line}\n")
                 line += "\n"
             else:
                 stdout.write("bia> ")
@@ -524,12 +268,16 @@ async def interactive(
                     stderr.write(f"Unknown command: {parts[1]}\n")
                 continue
             if raw == "/model":
+                if tui is not None:
+                    await tui.pause()
                 selection = await configure_model(
                     Settings.from_env(), ask=ask, ask_secret=ask_secret, stdout=stdout,
                     stderr=stderr, interactive=tty,
                 )
                 if selection is not None:
                     model_state["label"] = selection.model
+                if tui is not None:
+                    tui.resume()
                 continue
             if raw in {"/loop", "/loop status", "/loop services", "/loop lag",
                        "/loop checkpoints"}:
@@ -606,9 +354,12 @@ async def interactive(
     finally:
         components.engine.request_shutdown()
         await serving
+        if tui is not None:
+            tui.stop()
+            await tui.wait_stopped()
         await components.database.close()
-    stdout.write("BIA terminal stopped.\n")
-    stdout.flush()
+    real_stdout.write("BIA terminal stopped.\n")
+    real_stdout.flush()
     return 0
 
 
