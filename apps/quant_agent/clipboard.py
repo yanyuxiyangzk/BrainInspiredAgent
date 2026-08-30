@@ -49,6 +49,7 @@ def capture_clipboard(run: Run = subprocess.run) -> tuple[str, str | None]:
         result = run(
             ["powershell.exe", "-NoProfile", "-STA", "-Command", PS_SCRIPT],
             capture_output=True, text=True, timeout=15, check=False,
+            stdin=subprocess.DEVNULL,
         )
     except (OSError, subprocess.TimeoutExpired):
         return "empty", None
