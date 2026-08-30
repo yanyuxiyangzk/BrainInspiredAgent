@@ -279,6 +279,32 @@ def test_find_missing_images_reports_missing_paths(tmp_path: Path) -> None:
     assert missing == ["/tmp/nope.png", "gone.png"]
 
 
+def test_whitespace_normalizer_unifies_blank_rhythm() -> None:
+    from apps.quant_agent.chat import WhitespaceNormalizer
+
+    normalizer = WhitespaceNormalizer()
+    assert normalizer.feed("\n\n\n开头不留空行") == "开头不留空行"
+    assert normalizer.feed("第一段\n\n\n\n") == "第一段"
+    assert normalizer.feed("第二段") == "\n\n第二段"
+    assert normalizer.feed("收尾\n\n") == "收尾"
+    assert normalizer.flush() == "\n\n"
+
+    run_away = WhitespaceNormalizer()
+    assert run_away.feed("紧凑一次给足\n\n") == "紧凑一次给足"
+    assert run_away.feed("\n\n\n第二段") == "\n\n第二段"
+
+
+def test_footer_separator_leaves_exactly_one_blank_line() -> None:
+    from apps.quant_agent.chat import footer_separator
+
+    assert footer_separator("内容", tty=False) == "\n"
+    assert footer_separator("内容\n", tty=False) == ""
+    assert footer_separator("内容\n\n\n", tty=False) == ""
+    assert footer_separator("内容\n", tty=True) == "\n"
+    assert footer_separator("内容\n\n", tty=True) == "\x1b[1A\x1b[2K\n"
+    assert footer_separator("内容\n\n\n\n", tty=True) == "\x1b[1A\x1b[2K" * 3 + "\n"
+
+
 @pytest.mark.asyncio
 async def test_chat_session_sends_images() -> None:
     model = FakeChatModel(["好的"])

@@ -28,10 +28,12 @@ from active_agent_platform.llm import LlmError
 from apps.quant_agent.chat import (
     ChatInputError,
     ChatSession,
+    WhitespaceNormalizer,
     build_chat_client,
     describe_llm_error,
     extract_images,
     find_missing_images,
+    footer_separator,
     format_footer,
     image_data_url,
 )
@@ -315,14 +317,19 @@ async def interactive(
                 stderr.write("还没有配置模型：先输入 /model 选择模型，再直接输入文字对话。\n")
                 return
             chat = ChatSession(client, label=model_state["label"])
-        if images:
-            stdout.write(f"[已附带 {len(images)} 张图片]\n")
-            stdout.flush()
+        normalizer = WhitespaceNormalizer()
         emitted = {"chars": 0}
 
         def print_delta(delta: str) -> None:
+            text = normalizer.feed(delta)
+            if not emitted["chars"] and not text:
+                return
+            if not emitted["chars"]:
+                stdout.write("\n")
+                if images:
+                    stdout.write(f"[已附带 {len(images)} 张图片]\n")
             emitted["chars"] += len(delta)
-            stdout.write(delta)
+            stdout.write(text)
             stdout.flush()
 
         started = time.monotonic()
@@ -334,9 +341,15 @@ async def interactive(
             stderr.write(describe_llm_error(error) + "\n")
             return
         pending_images.clear()
+        tail = normalizer.flush()
+        if tail:
+            stdout.write(tail)
         tty = live_session is not None
         width = shutil.get_terminal_size(fallback=(80, 24)).columns if tty else 0
-        stdout.write("\n" + format_footer(response, time.monotonic() - started, width, color=tty))
+        footer = footer_separator(response.content, tty) + format_footer(
+            response, time.monotonic() - started, width, color=tty,
+        )
+        stdout.write(footer)
     try:
         while True:
             if live_session is not None:  # pragma: no cover - real TTY integration

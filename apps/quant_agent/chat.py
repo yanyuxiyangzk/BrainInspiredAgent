@@ -105,6 +105,50 @@ def find_missing_images(text: str) -> list[str]:
     return missing
 
 
+class WhitespaceNormalizer:
+    """Collapse runaway blank lines while streaming replies.
+
+    Runs of three or more newlines become a single blank line, leading
+    newlines are dropped, and a trailing run is held back until the next
+    chunk decides how long it really was.
+    """
+
+    def __init__(self) -> None:
+        self._pending = ""
+        self._started = False
+
+    def feed(self, chunk: str) -> str:
+        self._pending += chunk
+        if not self._started:
+            self._pending = self._pending.lstrip("\n")
+            if not self._pending:
+                return ""
+            self._started = True
+        match = re.search(r"\n+$", self._pending)
+        held = match.group(0) if match else ""
+        emit = re.sub(r"\n{3,}", "\n\n", self._pending[: len(self._pending) - len(held)])
+        self._pending = held
+        return emit
+
+    def flush(self) -> str:
+        text = re.sub(r"\n{3,}", "\n\n", self._pending)
+        self._pending = ""
+        return text
+
+
+def footer_separator(content: str, tty: bool) -> str:
+    """Produce exactly one blank line between a reply and its footer.
+
+    In TTY mode trailing blank lines already printed by the model are
+    erased with cursor movements so the gap never exceeds one line.
+    """
+    trailing = len(content) - len(content.rstrip("\n"))
+    if not tty:
+        return "" if trailing else "\n"
+    erasures = "\x1b[1A\x1b[2K" * max(0, trailing - 1)
+    return erasures + "\n"
+
+
 def build_chat_client(settings: Settings) -> GovernedLlmClient | None:
     """Assemble the governed chat client from settings; ``None`` when unconfigured."""
     key_ready = bool(settings.model_api_key) or settings.model_provider == OLLAMA_PROVIDER
