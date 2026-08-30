@@ -56,6 +56,10 @@ HELP = command_help()
 # screen: rule + pad + input (up to 8 lines) + pad + rule + status + slack.
 PROMPT_RESERVED_ROWS = 18
 
+# Ctrl+C returns this sentinel from the prompt, which read_line turns into
+# a KeyboardInterrupt so the shell exits like it did before the redesign.
+CTRL_C_SENTINEL = "\x00bia-quit"
+
 BANNER = r"""
                    ╭───────╮     ╭───────╮
                ╭───╯ ╭───╮ ╰─────╯ ╭───╮ ╰───╮
@@ -160,17 +164,13 @@ def _shell_key_bindings(
     register_image: Callable[[str], str],
     paste_note: dict[str, str],
 ) -> KeyBindings:  # pragma: no cover - prompt-toolkit callbacks
-    """Ctrl+J adds a newline; Ctrl+V/Alt+V paste; Ctrl+C clears or skips."""
+    """Ctrl+J adds a newline; Ctrl+V/Alt+V paste; Ctrl+C quits bia."""
     bindings = KeyBindings()
 
     @bindings.add("c-c")
-    def _cancel_input(event: object) -> None:
-        buffer = event.current_buffer  # type: ignore[attr-defined]
-        if buffer.text:
-            buffer.reset()
-            event.app.invalidate()  # type: ignore[attr-defined]
-        else:
-            event.app.exit("")  # type: ignore[attr-defined]
+    def _quit(event: object) -> None:
+        # Ctrl+C 退出 bia：返回哨兵值，read_line 检测后抛出 KeyboardInterrupt。
+        event.app.exit(CTRL_C_SENTINEL)  # type: ignore[attr-defined]
 
     @bindings.add("c-j")
     def _insert_newline(event: object) -> None:
@@ -370,7 +370,10 @@ async def interactive(
 
         async def read_line() -> str:
             application, _ = build_prompt_app()
-            return await application.run_async()
+            text = await application.run_async()
+            if text == CTRL_C_SENTINEL:
+                raise KeyboardInterrupt
+            return text
     stdout.write(BANNER)
     stdout.write(welcome_panel(settings))
     stdout.flush()
