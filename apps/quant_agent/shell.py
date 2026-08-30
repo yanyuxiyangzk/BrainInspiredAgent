@@ -344,6 +344,16 @@ async def interactive(
                     rows.append((style, f"  {item.text.ljust(width)}  {summary}\n"))
                 return rows
 
+            def render_filler() -> StyleAndTextTuples:
+                # 尾部填充行吸收预留区的剩余行数：框体（横线+输入+状态行）
+                # 保持紧凑，总高恒等于预留的 18 行，状态行不会被顶远。
+                input_rows = min(max(len(buffer.document.lines), 1), 8)
+                menu_rows = 0 if menu_hidden[0] else min(len(current_completions()), 12)
+                slack = max(0, PROMPT_RESERVED_ROWS - 5 - input_rows - menu_rows)
+                if slack <= 0:
+                    return []
+                return [("class:filler", "\n" * (slack - 1))]
+
             layout = Layout(HSplit([
                 Window(FormattedTextControl(render_rules), height=1),
                 VSplit([
@@ -360,6 +370,10 @@ async def interactive(
                     content=FormattedTextControl(render_menu),
                     height=Dimension(min=0, max=12),
                 ),
+                Window(
+                    content=FormattedTextControl(render_filler),
+                    height=Dimension(min=0, max=PROMPT_RESERVED_ROWS),
+                ),
             ]))
             application: Application[str] = Application(
                 layout=layout, key_bindings=bindings, style=SHELL_STYLE, full_screen=False,
@@ -367,10 +381,16 @@ async def interactive(
             return application, buffer
 
         async def read_line() -> str:
+            # 预留 18 行并回退到预留区顶部：框体 + 菜单 + 尾部填充总高恒为 18，
+            # 提交后擦除整块并回显问题，滚动记录保持紧凑。
+            stdout.write("\n" * PROMPT_RESERVED_ROWS + "\x1b[1A" * PROMPT_RESERVED_ROWS)
             application, _ = build_prompt_app()
             text = await application.run_async()
+            stdout.write("\x1b[2K" + "\x1b[1A\x1b[2K" * (PROMPT_RESERVED_ROWS - 1))
             if text == CTRL_C_SENTINEL:
                 raise KeyboardInterrupt
+            if text.strip():
+                stdout.write(f"❯ {text}\n")
             return text
     stdout.write(BANNER)
     stdout.write(welcome_panel(settings))
