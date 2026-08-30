@@ -346,7 +346,6 @@ async def interactive(
 
             layout = Layout(HSplit([
                 Window(FormattedTextControl(render_rules), height=1),
-                Window(height=1, char=" "),
                 VSplit([
                     Window(FormattedTextControl([("class:arrow", "❯ ")]), width=2),
                     Window(
@@ -356,7 +355,6 @@ async def interactive(
                     ),
                 ]),
                 Window(FormattedTextControl(render_status), height=1),
-                Window(height=1, char=" "),
                 Window(FormattedTextControl(render_rules), height=1),
                 Window(
                     content=FormattedTextControl(render_menu),
