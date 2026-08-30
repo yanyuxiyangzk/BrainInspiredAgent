@@ -15,9 +15,10 @@ from apps.quant_agent.cli import main, run
 from apps.quant_agent.commands import command_help
 from apps.quant_agent.shell import (
     COMMANDS,
+    SlashCompleter,
+    menu_viewport,
     slash_arguments,
 )
-from apps.quant_agent.tui import SlashCompleter, menu_viewport
 
 
 def test_menu_viewport_scrolls_to_keep_selection_visible() -> None:
