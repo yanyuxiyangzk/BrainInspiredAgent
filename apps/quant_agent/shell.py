@@ -344,22 +344,7 @@ async def interactive(
                     rows.append((style, f"  {item.text.ljust(width)}  {summary}\n"))
                 return rows
 
-            def render_filler() -> StyleAndTextTuples:
-                # The filler shrinks as the command list grows, so filler +
-                # frame + list always add up to the reserved rows and the
-                # highlighted selection can never fall off the screen.
-                input_rows = min(max(len(buffer.document.lines), 1), 8)
-                menu_rows = 0 if menu_hidden[0] else min(len(current_completions()), 12)
-                filler_rows = max(0, PROMPT_RESERVED_ROWS - 5 - input_rows - menu_rows)
-                if filler_rows <= 0:
-                    return []
-                return [("class:filler", "\n" * (filler_rows - 1))]
-
             layout = Layout(HSplit([
-                Window(
-                    content=FormattedTextControl(render_filler),
-                    height=Dimension(min=0, max=PROMPT_RESERVED_ROWS),
-                ),
                 Window(FormattedTextControl(render_rules), height=1),
                 Window(height=1, char=" "),
                 VSplit([
@@ -384,9 +369,6 @@ async def interactive(
             return application, buffer
 
         async def read_line() -> str:
-            # Reserve rows up front and rewind into them, so the framed
-            # input and the command list always render fully on screen.
-            stdout.write("\n" * PROMPT_RESERVED_ROWS + "\x1b[1A" * PROMPT_RESERVED_ROWS)
             application, _ = build_prompt_app()
             return await application.run_async()
     stdout.write(BANNER)
