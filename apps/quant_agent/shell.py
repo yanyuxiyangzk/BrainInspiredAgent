@@ -23,14 +23,11 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import (  # type: ignore[attr-defined]
     Dimension,
-    Float,
-    FloatContainer,
     HSplit,
     VSplit,
     Window,
 )
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
-from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.styles import Style
 
 from active_agent_platform.foundation import Settings
@@ -57,7 +54,7 @@ HELP = command_help()
 
 # Rows pre-reserved before each prompt so the framed input always fits on
 # screen: rule + pad + input (up to 8 lines) + pad + rule + status + slack.
-PROMPT_RESERVED_ROWS = 15
+PROMPT_RESERVED_ROWS = 18
 
 BANNER = r"""
                    ╭───────╮     ╭───────╮
@@ -89,12 +86,8 @@ SHELL_STYLE = Style.from_dict({
     "status-left": "#7a828a",
     "status-model": "#e5c07b bold",
     "status-note": "#7dd3fc",
-    "completion-menu.completion": "bg:ansidefault #e2e8f0",
-    "completion-menu.completion.current": "bg:ansidefault #38bdf8 bold underline",
-    "completion-menu.meta.completion": "bg:ansidefault #7dd3fc",
-    "completion-menu.meta.completion.current": "bg:ansidefault #38bdf8 bold",
-    "scrollbar.background": "bg:ansidefault",
-    "scrollbar.button": "bg:ansidefault #38bdf8",
+    "menu-row": "#e2e8f0",
+    "menu-selected": "bg:#38bdf8 #08111a bold",
 })
 
 
@@ -265,51 +258,90 @@ async def interactive(
         sub_session = PromptSession()
 
         def build_prompt_app() -> tuple[Application[str], Buffer]:
+            menu_index = [0]
+            menu_hidden = [False]
+
+            def current_completions() -> list[Completion]:
+                state = buffer.complete_state
+                return list(state.completions) if state and state.completions else []
+
+            def on_text_changed(buffer: Buffer) -> None:
+                menu_index[0] = 0
+                menu_hidden[0] = False
+
             buffer = Buffer(
                 multiline=True, completer=SlashCompleter(), complete_while_typing=True,
+                on_text_changed=on_text_changed,
             )
             bindings = _shell_key_bindings(register_image, paste_note)
 
             @bindings.add("enter")
             def _accept(event: object) -> None:
+                completions = current_completions()
+                index = menu_index[0]
+                if completions and index < len(completions):
+                    chosen = completions[index].text
+                    if chosen != buffer.text:
+                        buffer.text = chosen
+                        buffer.cursor_position = len(chosen)
+                        event.app.invalidate()  # type: ignore[attr-defined]
+                        return
                 event.app.exit(event.current_buffer.document.text)  # type: ignore[attr-defined]
 
             @bindings.add("escape")
             def _cancel(event: object) -> None:
                 event.app.exit("")  # type: ignore[attr-defined]
 
-            def render_filler() -> StyleAndTextTuples:
-                # The filler absorbs the unused part of the reserved block so
-                # the bottom rule and status line always end on the same row.
-                used = 5 + min(max(len(buffer.document.lines), 1), 8)
-                filler = max(1, PROMPT_RESERVED_ROWS - used)
-                return [("class:filler", "\n" * (filler - 1))]
+            @bindings.add("up")
+            def _menu_up(event: object) -> None:
+                if current_completions() and not menu_hidden[0]:
+                    menu_index[0] = max(0, menu_index[0] - 1)
+                    event.app.invalidate()  # type: ignore[attr-defined]
+                else:
+                    event.current_buffer.cursor_up()  # type: ignore[attr-defined]
 
-            layout = Layout(FloatContainer(
-                HSplit([
+            @bindings.add("down")
+            def _menu_down(event: object) -> None:
+                completions = current_completions()
+                if completions and not menu_hidden[0]:
+                    menu_index[0] = min(len(completions) - 1, menu_index[0] + 1)
+                    event.app.invalidate()  # type: ignore[attr-defined]
+                else:
+                    event.current_buffer.cursor_down()  # type: ignore[attr-defined]
+
+            def render_menu() -> StyleAndTextTuples:
+                if menu_hidden[0]:
+                    return []
+                completions = current_completions()[:12]
+                if not completions:
+                    return []
+                width = max(len(item.text) for item in completions)
+                rows: StyleAndTextTuples = []
+                for position, item in enumerate(completions):
+                    style = "class:menu-selected" if position == menu_index[0] else "class:menu-row"
+                    summary = item.display_meta_text or ""
+                    rows.append((style, f"  {item.text.ljust(width)}  {summary}\n"))
+                return rows
+
+            layout = Layout(HSplit([
+                Window(FormattedTextControl(render_rules), height=1),
+                Window(height=1, char=" "),
+                VSplit([
+                    Window(FormattedTextControl([("class:arrow", "❯ ")]), width=2),
                     Window(
-                        content=FormattedTextControl(render_filler),
-                        height=Dimension(min=1, max=PROMPT_RESERVED_ROWS),
+                        content=BufferControl(buffer=buffer),
+                        wrap_lines=True,
+                        height=Dimension(min=1, max=8),
                     ),
-                    Window(FormattedTextControl(render_rules), height=1),
-                    Window(height=1, char=" "),
-                    VSplit([
-                        Window(FormattedTextControl([("class:arrow", "❯ ")]), width=2),
-                        Window(
-                            content=BufferControl(buffer=buffer),
-                            wrap_lines=True,
-                            height=Dimension(min=1, max=8),
-                        ),
-                    ]),
-                    Window(FormattedTextControl(render_status), height=1),
-                    Window(height=1, char=" "),
-                    Window(FormattedTextControl(render_rules), height=1),
                 ]),
-                floats=[Float(
-                    xcursor=True, ycursor=True,
-                    content=CompletionsMenu(max_height=8),
-                )],
-            ))
+                Window(FormattedTextControl(render_status), height=1),
+                Window(height=1, char=" "),
+                Window(FormattedTextControl(render_rules), height=1),
+                Window(
+                    content=FormattedTextControl(render_menu),
+                    height=Dimension(min=0, max=12),
+                ),
+            ]))
             application: Application[str] = Application(
                 layout=layout, key_bindings=bindings, style=SHELL_STYLE, full_screen=False,
             )
@@ -317,7 +349,7 @@ async def interactive(
 
         async def read_line() -> str:
             # Reserve rows up front and rewind into them, so the framed
-            # input always renders fully on screen even near the bottom.
+            # input and the command list always render fully on screen.
             stdout.write("\n" * PROMPT_RESERVED_ROWS + "\x1b[1A" * PROMPT_RESERVED_ROWS)
             application, _ = build_prompt_app()
             return await application.run_async()
