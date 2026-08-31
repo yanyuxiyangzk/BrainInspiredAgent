@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shlex
 import shutil
 import time
@@ -16,11 +17,15 @@ from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import (  # type: ignore[attr-defined]
+    ConditionalContainer,
     Dimension,
+    Float,
+    FloatContainer,
     HSplit,
     VSplit,
     Window,
@@ -75,16 +80,14 @@ BANNER = r"""
 
 SHELL_STYLE = Style.from_dict({
     "arrow": "bold #38bdf8",
-    "rule": "#5c6370",
-    "status-left": "#7a828a",
+    "input-bar": "bg:#26262e",
+    "placeholder": "#7a828a",
     "status-model": "#e5c07b bold",
-    "status-note": "#7dd3fc",
-    "thinking": "#7dd3fc",
+    "status-usage": "#7a828a",
+    "status-cwd": "#98c379",
     "menu-row": "#e2e8f0",
     "menu-selected": "bg:#38bdf8 #08111a bold",
 })
-
-STATUS_HINTS = "? 直接输入与模型对话 · /img 或 Ctrl+V 贴图 · /help"
 
 
 class SlashCompleter(Completer):
@@ -223,24 +226,21 @@ async def interactive(
     tty = stdin.isatty() and stdout.isatty()
     sub_session: PromptSession[str] | None = None
     if tty:  # pragma: no cover - real TTY integration
-        def render_rules() -> StyleAndTextTuples:
-            width = shutil.get_terminal_size(fallback=(80, 24)).columns
-            return [("class:rule", "─" * max(8, width - 1))]
-
         def render_status() -> StyleAndTextTuples:
-            width = shutil.get_terminal_size(fallback=(80, 24)).columns
-            left = STATUS_HINTS
-            right = f"◆ {model_state['label']}"
-            if usage_state["text"]:
-                right += f" · {usage_state['text']}"
-            if paste_note["text"]:
-                right = f"{paste_note['text']}  {right}"
-            pad = max(2, width - _display_width(left) - _display_width(right) - 2)
-            return [
-                ("class:status-left", left),
-                ("class:status-pad", " " * pad),
-                ("class:status-model", right),
+            cwd = os.getcwd()
+            home = str(Path.home())
+            if cwd.startswith(home):
+                cwd = "~" + cwd[len(home):]
+            fragments: StyleAndTextTuples = [
+                ("class:status-model", f"◆ {model_state['label']}"),
             ]
+            if paste_note["text"]:
+                fragments.append(("class:status-usage", f" ·{paste_note['text']}"))
+            if usage_state["text"]:
+                fragments.append(("class:status-usage", f" · {usage_state['text']}"))
+            fragments.append(("class:status-usage", " · "))
+            fragments.append(("class:status-cwd", cwd))
+            return fragments
 
         sub_session = PromptSession()
 
@@ -328,32 +328,51 @@ async def interactive(
                 # 保持紧凑，总高恒等于预留的 18 行，状态行不会被顶远。
                 input_rows = min(max(len(buffer.document.lines), 1), 8)
                 menu_rows = 0 if menu_hidden[0] else min(len(current_completions()), 12)
-                slack = max(0, PROMPT_RESERVED_ROWS - 5 - input_rows - menu_rows)
+                slack = max(0, PROMPT_RESERVED_ROWS - 2 - input_rows - menu_rows)
                 if slack <= 0:
                     return []
                 return [("class:filler", "\n" * (slack - 1))]
 
-            layout = Layout(HSplit([
-                Window(FormattedTextControl(render_rules), height=1),
-                VSplit([
-                    Window(FormattedTextControl([("class:arrow", "❯ ")]), width=2),
+            layout = Layout(FloatContainer(
+                HSplit([
+                    VSplit([
+                        Window(
+                            content=FormattedTextControl([("class:arrow", "❯ ")]),
+                            width=2,
+                            style="class:input-bar",
+                        ),
+                        Window(
+                            content=BufferControl(buffer=buffer),
+                            wrap_lines=True,
+                            height=Dimension(min=1, max=8),
+                            style="class:input-bar",
+                        ),
+                    ]),
+                    Window(FormattedTextControl(render_status), height=1),
                     Window(
-                        content=BufferControl(buffer=buffer),
-                        wrap_lines=True,
-                        height=Dimension(min=1, max=8),
+                        content=FormattedTextControl(render_menu),
+                        height=Dimension(min=0, max=12),
+                    ),
+                    Window(
+                        content=FormattedTextControl(render_filler),
+                        height=Dimension(min=0, max=PROMPT_RESERVED_ROWS),
                     ),
                 ]),
-                Window(FormattedTextControl(render_status), height=1),
-                Window(FormattedTextControl(render_rules), height=1),
-                Window(
-                    content=FormattedTextControl(render_menu),
-                    height=Dimension(min=0, max=12),
-                ),
-                Window(
-                    content=FormattedTextControl(render_filler),
-                    height=Dimension(min=0, max=PROMPT_RESERVED_ROWS),
-                ),
-            ]))
+                floats=[
+                    Float(
+                        xcursor=True, ycursor=True,
+                        content=ConditionalContainer(
+                            Window(
+                                FormattedTextControl(
+                                    [("class:placeholder", " 直接输入，/ 查看命令")],
+                                ),
+                                style="class:input-bar",
+                            ),
+                            filter=Condition(lambda: not buffer.text),
+                        ),
+                    ),
+                ],
+            ))
             application: Application[str] = Application(
                 layout=layout, key_bindings=bindings, style=SHELL_STYLE, full_screen=False,
             )
@@ -370,8 +389,14 @@ async def interactive(
                 raise KeyboardInterrupt
             if text.strip():
                 if tty:
+                    width = shutil.get_terminal_size(fallback=(80, 24)).columns
+                    for index, line in enumerate(text.splitlines() or [""]):
+                        content = f" ❯ {line} " if index == 0 else f"   {line} "
+                        pad = " " * max(0, width - _display_width(content) - 1)
+                        stdout.write(f"\x1b[48;2;38;38;46m{content}{pad}\x1b[0m\n")
                     stdout.write("  ✻ 思考中…\n")
-                stdout.write(f"❯ {text}\n")
+                else:
+                    stdout.write(f"❯ {text}\n")
             return text
     stdout.write(BANNER)
     stdout.write(welcome_panel(settings))
@@ -414,19 +439,16 @@ async def interactive(
         normalizer = WhitespaceNormalizer()
         emitted = {"chars": 0}
 
-        def clear_thinking_above(echo_lines: int) -> str:
-            """清掉回显行上方的"✻ 思考中…"行，光标回到回复起始行。"""
-            if not tty:
-                return ""
-            up = echo_lines + 2
-            return "\x1b[1A" * up + "\r\x1b[2K" + "\x1b[1B" * up
+        def clear_thinking() -> str:
+            """清掉回显条下方的"✻ 思考中…"行，回复原地开始。"""
+            return "\x1b[1A\r\x1b[2K" if tty else ""
 
         def print_delta(delta: str) -> None:
             text = normalizer.feed(delta)
             if not emitted["chars"] and not text:
                 return
             if not emitted["chars"]:
-                stdout.write(clear_thinking_above(max(1, len(cleaned.splitlines()))))
+                stdout.write(clear_thinking())
                 if images:
                     stdout.write(f"[已附带 {len(images)} 张图片]\n")
             emitted["chars"] += len(delta)
@@ -437,7 +459,7 @@ async def interactive(
         try:
             response = await chat.send(cleaned, on_delta=print_delta, images=images)
         except LlmError as error:
-            stderr.write(clear_thinking_above(max(1, len(cleaned.splitlines()))))
+            stdout.write(clear_thinking())
             stderr.write(describe_llm_error(error) + "\n")
             return
         pending_images.clear()
