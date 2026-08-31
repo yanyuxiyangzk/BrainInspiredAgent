@@ -80,7 +80,6 @@ BANNER = r"""
 
 SHELL_STYLE = Style.from_dict({
     "arrow": "bold #38bdf8",
-    "input-bar": "bg:#26262e",
     "placeholder": "#7a828a",
     "status-model": "#e5c07b bold",
     "status-usage": "#7a828a",
@@ -328,24 +327,24 @@ async def interactive(
                 # 保持紧凑，总高恒等于预留的 18 行，状态行不会被顶远。
                 input_rows = min(max(len(buffer.document.lines), 1), 8)
                 menu_rows = 0 if menu_hidden[0] else min(len(current_completions()), 12)
-                slack = max(0, PROMPT_RESERVED_ROWS - 2 - input_rows - menu_rows)
+                slack = max(0, PROMPT_RESERVED_ROWS - 3 - input_rows - menu_rows)
                 if slack <= 0:
                     return []
                 return [("class:filler", "\n" * (slack - 1))]
 
             layout = Layout(FloatContainer(
                 HSplit([
+                    # 空白保护行：擦除差一行时残留的是看不见的空行
+                    Window(height=1),
                     VSplit([
                         Window(
                             content=FormattedTextControl([("class:arrow", "❯ ")]),
                             width=2,
-                            style="class:input-bar",
                         ),
                         Window(
                             content=BufferControl(buffer=buffer),
                             wrap_lines=True,
                             height=Dimension(min=1, max=8),
-                            style="class:input-bar",
                         ),
                     ]),
                     Window(FormattedTextControl(render_status), height=1),
@@ -366,7 +365,6 @@ async def interactive(
                                 FormattedTextControl(
                                     [("class:placeholder", " 直接输入，/ 查看命令")],
                                 ),
-                                style="class:input-bar",
                             ),
                             filter=Condition(lambda: not buffer.text),
                         ),
@@ -384,7 +382,7 @@ async def interactive(
             stdout.write("\n" * PROMPT_RESERVED_ROWS + "\x1b[1A" * PROMPT_RESERVED_ROWS)
             application, _ = build_prompt_app()
             text = await application.run_async()
-            stdout.write("\x1b[2K" + "\x1b[1A\x1b[2K" * (PROMPT_RESERVED_ROWS - 1))
+            stdout.write("\x1b[2K" + "\x1b[1A\x1b[2K" * PROMPT_RESERVED_ROWS)
             if text == CTRL_C_SENTINEL:
                 raise KeyboardInterrupt
             if text.strip():
