@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import functools
 import shlex
 import shutil
-import subprocess
 import time
 from collections.abc import Callable
 from io import StringIO
@@ -105,19 +103,6 @@ class SlashCompleter(Completer):
                 )
 
 
-@functools.lru_cache(maxsize=1)
-def _build_tag() -> str:
-    """Short git hash of the running source tree, so builds are distinguishable."""
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(Path(__file__).resolve().parents[2]), "rev-parse", "--short", "HEAD"],
-            capture_output=True, text=True, timeout=3, check=False,
-        )
-    except OSError:
-        return "dev"
-    return result.stdout.strip() or "dev"
-
-
 def menu_viewport(total: int, index: int, offset: int, visible: int) -> int:
     """Scroll offset that keeps ``index`` inside a ``visible``-row window."""
     offset = max(offset, index - visible + 1)
@@ -150,7 +135,6 @@ def welcome_panel(settings: Settings) -> str:
         rule,
         f"  模型   {model_line}",
         "  上手   直接输入文字即可对话 · /img 贴图 · /help 全部命令",
-        f"  构建   {_build_tag()}",
         rule,
     ]) + "\n"
 
@@ -449,8 +433,6 @@ async def interactive(
             stdout.write(text)
             stdout.flush()
 
-        if tty:
-            stdout.write(f"{STATUS_HINTS}    ◆ {model_state['label']}\n")
         started = time.monotonic()
         try:
             response = await chat.send(cleaned, on_delta=print_delta, images=images)
