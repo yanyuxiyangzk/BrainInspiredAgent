@@ -139,17 +139,18 @@ def welcome_panel(settings: Settings) -> str:
     """Quick-start panel under the banner: current model state and shortcuts."""
     key_ready = bool(settings.model_api_key) or settings.model_provider == OLLAMA_PROVIDER
     if settings.model_url and settings.model_name and key_ready:
-        model_line = f"{settings.model_name} · {settings.model_provider} · 已配置 ✓"
+        model_line = f"{settings.model_name} ✓ 已就绪 · /model 可更换"
     elif settings.model_name or settings.model_url:
-        model_line = f"{settings.model_name or settings.model_url} · 缺少 API Key，输入 /model 补充"
+        model_line = f"{settings.model_name or settings.model_url} · 缺少 API Key · /model 补充"
     else:
-        model_line = "未配置 · 输入 /model 选择模型"
+        model_line = "未配置 · /model 选择模型"
     width = shutil.get_terminal_size(fallback=(80, 24)).columns - 1
     rule = "─" * max(8, width)
     return "\n".join([
         rule,
-        f"          模型   {model_line}",
-        f"          提示   直接输入与模型对话 · /img 或 Ctrl+V 贴图 · /help 命令总览 · /model 切换模型 · 构建 {_build_tag()}",
+        f"  模型   {model_line}",
+        "  上手   直接输入文字即可对话 · /img 贴图 · /help 全部命令",
+        f"  构建   {_build_tag()}",
         rule,
     ]) + "\n"
 

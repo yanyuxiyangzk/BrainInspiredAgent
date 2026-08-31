@@ -65,16 +65,16 @@ def test_welcome_panel_reflects_model_state() -> None:
     from active_agent_platform.foundation import Settings
     from apps.quant_agent.shell import welcome_panel
 
-    assert "未配置 · 输入 /model 选择模型" in welcome_panel(Settings())
+    assert "模型   未配置 · /model 选择模型" in welcome_panel(Settings())
     configured = welcome_panel(Settings(
         model_provider="glm",
         model_url="https://open.bigmodel.cn/api/paas/v4",
         model_name="glm-4-flash",
         model_api_key="sk-x",
     ))
-    assert "glm-4-flash · glm · 已配置 ✓" in configured
-    assert "/help 命令总览 · /model 切换模型" in configured
-    assert "缺少 API Key" in welcome_panel(Settings(model_url="https://x/v1", model_name="m"))
+    assert "模型   glm-4-flash ✓ 已就绪 · /model 可更换" in configured
+    assert "上手   直接输入文字即可对话 · /img 贴图 · /help 全部命令" in configured
+    assert "缺少 API Key · /model 补充" in welcome_panel(Settings(model_url="https://x/v1", model_name="m"))
 
 
 def test_model_label_summarizes_state() -> None:
@@ -118,7 +118,7 @@ async def test_interactive_shell_starts_help_and_stops(
     assert "╭──╮   ╭──╮" in output and "COGNITIVE AGENT" in output
     assert "╰────┴────╯" in output and "──●" in output
     assert output.count("●") >= 6 and "○" not in output and "🧠" not in output
-    assert "输入 /model 选择模型" in output and "/model 切换模型" in output
+    assert "/model 选择模型" in output
     assert "/market" in output
     assert "LoopEngine HEALTHY" in output and "quant_runtime" in output
     assert "commands=0 outbox=0" in output and "No schedule checkpoints" in output
@@ -306,7 +306,7 @@ def test_bare_main_enters_shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(sys, "stdout", stdout)
     monkeypatch.setattr(sys, "stderr", stderr)
     assert main() == 0
-    assert "输入 /model 选择模型" in stdout.getvalue()
+    assert "/model 选择模型" in stdout.getvalue()
     assert not stderr.getvalue()
 
 
