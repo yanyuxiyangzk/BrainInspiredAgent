@@ -39,7 +39,6 @@ from apps.quant_agent.chat import (
     ChatInputError,
     ChatSession,
     WhitespaceNormalizer,
-    _display_width,
     blank_line_separator,
     build_chat_client,
     describe_llm_error,
@@ -386,15 +385,9 @@ async def interactive(
             if text == CTRL_C_SENTINEL:
                 raise KeyboardInterrupt
             if text.strip():
+                stdout.write(f"❯ {text}\n")
                 if tty:
-                    width = shutil.get_terminal_size(fallback=(80, 24)).columns
-                    for index, line in enumerate(text.splitlines() or [""]):
-                        content = f" ❯ {line} " if index == 0 else f"   {line} "
-                        pad = " " * max(0, width - _display_width(content) - 1)
-                        stdout.write(f"\x1b[48;2;38;38;46m{content}{pad}\x1b[0m\n")
                     stdout.write("  ✻ 思考中…\n")
-                else:
-                    stdout.write(f"❯ {text}\n")
             return text
     stdout.write(BANNER)
     stdout.write(welcome_panel(settings))
