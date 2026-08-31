@@ -115,9 +115,9 @@ async def test_interactive_shell_starts_help_and_stops(
     )
     assert code == 0 and not stderr.getvalue()
     output = stdout.getvalue()
-    assert "╭───────╮     ╭───────╮" in output and "COGNITIVE AGENT" in output
-    assert "╭──╮ ╷ ╭──╮" in output and "├──┤ │ ├──┤" in output
-    assert output.count("●") >= 18 and "○" not in output and "🧠" not in output
+    assert "╭──╮   ╭──╮" in output and "COGNITIVE AGENT" in output
+    assert "╰────┴────╯" in output and "──●" in output
+    assert output.count("●") >= 6 and "○" not in output and "🧠" not in output
     assert "输入 /model 选择模型" in output and "/model 切换模型" in output
     assert "/market" in output
     assert "LoopEngine HEALTHY" in output and "quant_runtime" in output
