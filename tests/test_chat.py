@@ -285,6 +285,49 @@ def test_whitespace_normalizer_unifies_blank_rhythm() -> None:
     assert run_away.feed("\n\n\n第二段") == "\n\n第二段"
 
 
+def test_markdown_formatter_renders_heading_bold_inline_and_list() -> None:
+    from apps.quant_agent.chat import MarkdownStreamFormatter
+
+    md = MarkdownStreamFormatter()
+    out = md.feed("## 要点\n这是**重要**的 `pip install`\n- 第一条\n")
+    assert "\x1b[1m\x1b[36m要点\x1b[0m" in out and "##" not in out
+    assert "\x1b[1m重要\x1b[0m" in out and "**" not in out
+    assert "\x1b[93mpip install\x1b[0m" in out and "`" not in out
+    assert "• 第一条" in out and "- " not in out
+
+
+def test_markdown_formatter_handles_code_fence_across_chunks() -> None:
+    from apps.quant_agent.chat import MarkdownStreamFormatter
+
+    md = MarkdownStreamFormatter()
+    first = md.feed("```python\n")
+    assert "── python ──" in first
+    inside = md.feed("print(1)\n")
+    assert "\x1b[2m  print(1)\x1b[0m" in inside
+    last = md.feed("```\n之后\n")
+    assert "```" not in last and "之后" in last
+
+
+def test_markdown_formatter_holds_partial_line_until_newline() -> None:
+    from apps.quant_agent.chat import MarkdownStreamFormatter
+
+    md = MarkdownStreamFormatter()
+    assert md.feed("这是**重") == ""
+    out = md.feed("要**的\n")
+    assert "\x1b[1m重要\x1b[0m" in out and "**" not in out
+    assert md.flush() == ""
+
+
+def test_markdown_formatter_renders_quote_hr_and_link() -> None:
+    from apps.quant_agent.chat import MarkdownStreamFormatter
+
+    md = MarkdownStreamFormatter()
+    out = md.feed("> 引用内容\n---\n[文档](https://x)\n")
+    assert "▏ 引用内容" in out
+    assert "────────" in out and "---" not in out
+    assert "文档 (https://x)" in out
+
+
 @pytest.mark.asyncio
 async def test_chat_session_sends_images() -> None:
     model = FakeChatModel(["好的"])

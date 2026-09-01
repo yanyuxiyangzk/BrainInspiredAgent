@@ -34,6 +34,7 @@ from active_agent_platform.llm import LlmError
 from apps.quant_agent.chat import (
     ChatInputError,
     ChatSession,
+    MarkdownStreamFormatter,
     WhitespaceNormalizer,
     blank_line_separator,
     build_chat_client,
@@ -409,6 +410,7 @@ async def interactive(
                 return
             chat = ChatSession(client, label=model_state["label"])
         normalizer = WhitespaceNormalizer()
+        markdown = MarkdownStreamFormatter() if tty else None
         emitted = {"chars": 0}
 
         def clear_thinking() -> str:
@@ -417,6 +419,8 @@ async def interactive(
 
         def print_delta(delta: str) -> None:
             text = normalizer.feed(delta)
+            if markdown is not None and text:
+                text = markdown.feed(text)
             if not emitted["chars"] and not text:
                 return
             if not emitted["chars"]:
@@ -436,6 +440,8 @@ async def interactive(
             return
         pending_images.clear()
         tail = normalizer.flush()
+        if markdown is not None:
+            tail = markdown.feed(tail) + markdown.flush()
         if tail:
             stdout.write(tail)
         seconds = time.monotonic() - started
