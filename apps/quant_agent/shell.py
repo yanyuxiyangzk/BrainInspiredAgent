@@ -17,15 +17,11 @@ from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
-from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import (  # type: ignore[attr-defined]
-    ConditionalContainer,
     Dimension,
-    Float,
-    FloatContainer,
     HSplit,
     VSplit,
     Window,
@@ -331,45 +327,30 @@ async def interactive(
                     return []
                 return [("class:filler", "\n" * (slack - 1))]
 
-            layout = Layout(FloatContainer(
-                HSplit([
-                    # 空白保护行：擦除差一行时残留的是看不见的空行
-                    Window(height=1),
-                    VSplit([
-                        Window(
-                            content=FormattedTextControl([("class:arrow", "❯ ")]),
-                            width=2,
-                        ),
-                        Window(
-                            content=BufferControl(buffer=buffer),
-                            wrap_lines=True,
-                            height=Dimension(min=1, max=8),
-                        ),
-                    ]),
-                    Window(FormattedTextControl(render_status), height=1),
+            layout = Layout(HSplit([
+                # 空白保护行：擦除差一行时残留的是看不见的空行
+                Window(height=1),
+                VSplit([
                     Window(
-                        content=FormattedTextControl(render_menu),
-                        height=Dimension(min=0, max=12),
+                        content=FormattedTextControl([("class:arrow", "❯ ")]),
+                        width=2,
                     ),
                     Window(
-                        content=FormattedTextControl(render_filler),
-                        height=Dimension(min=0, max=PROMPT_RESERVED_ROWS),
+                        content=BufferControl(buffer=buffer),
+                        wrap_lines=True,
+                        height=Dimension(min=1, max=8),
                     ),
                 ]),
-                floats=[
-                    Float(
-                        xcursor=True, ycursor=True,
-                        content=ConditionalContainer(
-                            Window(
-                                FormattedTextControl(
-                                    [("class:placeholder", " 直接输入，/ 查看命令")],
-                                ),
-                            ),
-                            filter=Condition(lambda: not buffer.text),
-                        ),
-                    ),
-                ],
-            ))
+                Window(FormattedTextControl(render_status), height=1),
+                Window(
+                    content=FormattedTextControl(render_menu),
+                    height=Dimension(min=0, max=12),
+                ),
+                Window(
+                    content=FormattedTextControl(render_filler),
+                    height=Dimension(min=0, max=PROMPT_RESERVED_ROWS),
+                ),
+            ]))
             application: Application[str] = Application(
                 layout=layout, key_bindings=bindings, style=SHELL_STYLE, full_screen=False,
             )
