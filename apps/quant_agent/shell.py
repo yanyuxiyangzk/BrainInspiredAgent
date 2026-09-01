@@ -366,7 +366,7 @@ async def interactive(
             if text == CTRL_C_SENTINEL:
                 raise KeyboardInterrupt
             if text.strip():
-                stdout.write(f"❯ {text}\n")
+                stdout.write(f"{text}\n")
                 if tty:
                     stdout.write("  ✻ 思考中…\n")
             return text
