@@ -293,9 +293,14 @@ async def interactive(
 
             menu_offset = [0]
 
+            def input_row_count() -> int:
+                return min(max(len(buffer.document.lines), 1), 8)
+
             def visible_menu_rows(total: int) -> int:
-                rows = shutil.get_terminal_size(fallback=(80, 24)).lines
-                return max(3, min(total, 12, rows - 8))
+                # 菜单高度按预留区剩余空间硬性封顶：框体总高恒 <= 预留行数，
+                # 不会越界覆盖上方 banner 与欢迎面板。
+                budget = PROMPT_RESERVED_ROWS - 3 - input_row_count()
+                return max(1, min(total, 12, budget))
 
             def render_menu() -> StyleAndTextTuples:
                 if menu_hidden[0]:
@@ -319,11 +324,10 @@ async def interactive(
                 return rows
 
             def render_filler() -> StyleAndTextTuples:
-                # 尾部填充行吸收预留区的剩余行数：框体（横线+输入+状态行）
-                # 保持紧凑，总高恒等于预留的 18 行，状态行不会被顶远。
-                input_rows = min(max(len(buffer.document.lines), 1), 8)
-                menu_rows = 0 if menu_hidden[0] else min(len(current_completions()), 12)
-                slack = max(0, PROMPT_RESERVED_ROWS - 3 - input_rows - menu_rows)
+                # 尾部填充行吸收预留区的剩余行数：保护行+输入+状态行+菜单
+                # 加填充总高恒等于预留行数，永不越界覆盖上方内容。
+                menu_rows = 0 if menu_hidden[0] else visible_menu_rows(len(current_completions()))
+                slack = max(0, PROMPT_RESERVED_ROWS - 3 - input_row_count() - menu_rows)
                 if slack <= 0:
                     return []
                 return [("class:filler", "\n" * (slack - 1))]
