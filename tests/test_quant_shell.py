@@ -21,6 +21,12 @@ from apps.quant_agent.shell import (
 )
 
 
+def isolate_model_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """屏蔽本机 .env 的模型配置，测试不依赖真实模型环境。"""
+    for key in ("BIA_MODEL_URL", "BIA_MODEL_NAME", "BIA_MODEL_API_KEY"):
+        monkeypatch.setenv(key, "")
+
+
 def test_menu_viewport_scrolls_to_keep_selection_visible() -> None:
     assert menu_viewport(total=25, index=0, offset=0, visible=10) == 0
     assert menu_viewport(total=25, index=12, offset=0, visible=10) == 3
@@ -107,12 +113,17 @@ def test_model_label_summarizes_state() -> None:
 async def test_interactive_shell_starts_help_and_stops(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from active_agent_platform.scheduler import MissedTriggerPolicy
+
     real_builder = runtime_module.build_quant_runtime
+    # now+1h 跨午夜时会折回当天凌晨、被判定为 missed 立即触发；SKIP 策略
+    # 让错过的窗口直接跳过，测试在任何钟点运行都不会触发复盘。
     future_review = (datetime.now(ZoneInfo("Asia/Shanghai")) + timedelta(hours=1)).time()
+    isolate_model_env(monkeypatch)
     monkeypatch.setattr(
         runtime_module, "build_quant_runtime",
         lambda path: real_builder(path, schedule=runtime_module.DailyReviewSchedule(
-            at=future_review,
+            at=future_review, missed_policy=MissedTriggerPolicy.SKIP,
         )),
     )
     stdin = StringIO(
@@ -132,7 +143,8 @@ async def test_interactive_shell_starts_help_and_stops(
     assert "/model 选择模型" in output
     assert "/market" in output
     assert "LoopEngine HEALTHY" in output and "quant_runtime" in output
-    assert "commands=0 outbox=0" in output and "No schedule checkpoints" in output
+    # 复盘绝不执行：错过窗口最多记 SKIPPED 检查点，队列保持为零。
+    assert "commands=0 outbox=0" in output and "FIRED" not in output
     assert "BIA terminal stopped" in output
 
 
@@ -234,7 +246,10 @@ async def test_shell_plain_text_chats_with_model(
 
 
 @pytest.mark.asyncio
-async def test_shell_chat_without_model_guides_to_setup(tmp_path: Path) -> None:
+async def test_shell_chat_without_model_guides_to_setup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    isolate_model_env(monkeypatch)
     stdin = StringIO("你好\n/exit\n")
     stdout, stderr = StringIO(), StringIO()
     code = await run(
@@ -357,6 +372,7 @@ async def test_shell_img_command_with_missing_path_reports_error(tmp_path: Path)
 def test_bare_main_enters_shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import sys
 
+    isolate_model_env(monkeypatch)
     stdout, stderr = StringIO(), StringIO()
     monkeypatch.setattr(sys, "argv", ["bia", "--database", str(tmp_path / "main.db")])
     monkeypatch.setattr(sys, "stdin", StringIO("/exit\n"))
