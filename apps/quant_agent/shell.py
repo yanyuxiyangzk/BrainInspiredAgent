@@ -335,8 +335,6 @@ async def interactive(
                 return rows
 
             layout = Layout(HSplit([
-                # 状态行放在框体第一行，紧贴上方对话输出，不留空隙。
-                Window(FormattedTextControl(render_status), height=1),
                 Window(FormattedTextControl(render_rules), height=1),
                 VSplit([
                     Window(FormattedTextControl([("class:arrow", "❯ ")]), width=2),
@@ -348,6 +346,8 @@ async def interactive(
                         dont_extend_height=True,
                     ),
                 ]),
+                # 状态行紧贴 ❯ 输入行的下方。
+                Window(FormattedTextControl(render_status), height=1),
                 Window(FormattedTextControl(render_rules), height=1),
                 ConditionalContainer(
                     Window(
