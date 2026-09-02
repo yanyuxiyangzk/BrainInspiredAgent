@@ -346,9 +346,9 @@ async def interactive(
                         dont_extend_height=True,
                     ),
                 ]),
-                # 状态行紧贴 ❯ 输入行的下方。
-                Window(FormattedTextControl(render_status), height=1),
                 Window(FormattedTextControl(render_rules), height=1),
+                # 状态行作为框体页脚，紧贴底部分割线的下方。
+                Window(FormattedTextControl(render_status), height=1),
                 ConditionalContainer(
                     Window(
                         content=FormattedTextControl(render_menu),
