@@ -308,6 +308,52 @@ async def test_shell_img_command_attaches_clipboard_image(
     assert sent.images and sent.images[0].startswith("data:image/png;base64,")
 
 
+@pytest.mark.asyncio
+async def test_shell_img_command_with_path_sends_image_and_question(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from active_agent_platform.llm import FakeChatModel
+    from active_agent_platform.llm_runtime import GovernedLlmClient, LlmConfig
+
+    image = tmp_path / "paste.png"
+    image.write_bytes(b"\x89PNG-fake")
+    models: list[FakeChatModel] = []
+
+    def fake_client(settings: object) -> GovernedLlmClient:
+        del settings
+        model = FakeChatModel(["图里是一张测试图片"], provider="glm", model="glm-5.3-flash")
+        models.append(model)
+        return GovernedLlmClient(
+            model,
+            LlmConfig(provider="glm", model="glm-5.3-flash", api_key_ref="test",
+                      timeout_seconds=5, daily_token_budget=1000),
+        )
+
+    monkeypatch.setattr("apps.quant_agent.shell.build_chat_client", fake_client)
+    stdin = StringIO(f"/img {image} 图里有什么\n/exit\n")
+    stdout, stderr = StringIO(), StringIO()
+    code = await run(
+        ("--database", str(tmp_path / "bia.db"), "shell"), stdout, stderr, stdin,
+    )
+    assert code == 0 and not stderr.getvalue()
+    output = stdout.getvalue()
+    assert "图里是一张测试图片" in output and "Unknown command" not in output
+    sent = models[0].requests[0].messages[-1]
+    assert sent.images and sent.images[0].startswith("data:image/png;base64,")
+    assert "图里有什么" in sent.content
+
+
+@pytest.mark.asyncio
+async def test_shell_img_command_with_missing_path_reports_error(tmp_path: Path) -> None:
+    stdin = StringIO("/img /no/such/image.png 描述一下\n/exit\n")
+    stdout, stderr = StringIO(), StringIO()
+    code = await run(
+        ("--database", str(tmp_path / "bia.db"), "shell"), stdout, stderr, stdin,
+    )
+    assert code == 0
+    assert "图片不存在" in stderr.getvalue()
+
+
 def test_bare_main_enters_shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import sys
 

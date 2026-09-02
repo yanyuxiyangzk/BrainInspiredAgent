@@ -521,19 +521,16 @@ async def interactive(
             chat = ChatSession(client, label=model_state["label"])
         normalizer = WhitespaceNormalizer()
         markdown = MarkdownStreamFormatter() if tty else None
-        emitted = {"chars": 0}
 
         def print_delta(delta: str) -> None:
             text = normalizer.feed(delta)
             if markdown is not None and text:
                 text = markdown.feed(text)
-            if not text:
-                return
-            if not emitted["chars"] and images:
-                asyncio.ensure_future(emit(f"[已附带 {len(images)} 张图片]\n"))
-            emitted["chars"] += len(delta)
-            asyncio.ensure_future(emit(text))
+            if text:
+                asyncio.ensure_future(emit(text))
 
+        if images:
+            await emit(f"[已附带 {len(images)} 张图片]\n")
         started = time.monotonic()
         try:
             response = await chat.send(cleaned, on_delta=print_delta, images=images)
@@ -559,7 +556,9 @@ async def interactive(
                 handle.invalidate()
 
     async def write_echo(
-        raw: str, emit: Callable[[str], Awaitable[None]],
+        raw: str,
+        emit: Callable[[str], Awaitable[None]],
+        display: str | None = None,
     ) -> None:
         # 回显输入行；分隔线只画在首轮回显上方，隔开欢迎面板与对话历史。
         if not tty:
@@ -567,13 +566,36 @@ async def interactive(
         if not turn_counter["n"]:
             await emit(turn_rule())
         turn_counter["n"] += 1
-        await emit(f"❯ {raw}\n")
+        await emit(f"❯ {display or raw}\n")
 
     async def dispatch_line(
         raw: str,
         emit: Callable[[str], Awaitable[None]],
         emit_err: Callable[[str], Awaitable[None]],
     ) -> None:
+        # /img <图片路径> [提问]：附带图片文件，可直接带提问发送。
+        if raw.startswith("/img "):
+            argument = raw[len("/img"):].strip()
+            if argument.startswith('"'):
+                path, _, rest = argument[1:].partition('"')
+                question = rest.strip()
+            else:
+                path, _, question = argument.partition(" ")
+                question = question.strip()
+            try:
+                image_data_url(path)  # 校验图片存在且大小合规
+            except ChatInputError as error:
+                await write_echo(raw, emit)
+                await emit_err(f"{error}\n")
+                return
+            token = register_image(path)
+            pending_images.append(path)
+            await write_echo(raw, emit, display=f"[{token}] {question}".strip())
+            if question:
+                await chat_turn(question, emit, emit_err)
+            else:
+                await emit(f"✓ 已添加 [{token}]，下一条消息将自动附带。\n")
+            return
         await write_echo(raw, emit)
         if raw.startswith("/help"):
             parts = raw.split(maxsplit=1)
@@ -619,6 +641,28 @@ async def interactive(
                 await emit("剪贴板里是文本，直接输入发送即可（/img 只附带图片）。\n")
             else:
                 await emit("剪贴板里没有图片（或 PowerShell 不可用）。\n")
+            return
+        if raw.startswith("/img "):
+            # /img <图片路径> [提问]：附带图片文件，可直接带提问发送。
+            argument = raw[len("/img"):].strip()
+            if argument.startswith('"'):
+                path, _, rest = argument[1:].partition('"')
+                question = rest.strip()
+            else:
+                path, _, question = argument.partition(" ")
+                question = question.strip()
+            try:
+                image_data_url(path)  # 校验图片存在且大小合规
+            except ChatInputError as error:
+                await emit_err(f"{error}\n")
+                return
+            token = register_image(path)
+            pending_images.append(path)
+            await write_echo(raw, emit, display=(f"[{token}] {question}".strip()))
+            if question:
+                await chat_turn(question, emit, emit_err)
+            else:
+                await emit(f"✓ 已添加 [{token}]，下一条消息将自动附带。\n")
             return
         if raw == "/clear":
             if chat is not None:
