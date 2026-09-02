@@ -182,11 +182,27 @@ SHELL_STYLE = Style.from_dict({
     "status-model": "#e5c07b bold",
     "status-note": "#7dd3fc",
     "thinking": "#7dd3fc",
+    "thinking-spin": "bold #7dd3fc",
+    "thinking-tip": "#7a828a",
     "menu-row": "#e2e8f0",
     "menu-selected": "bg:#38bdf8 #08111a bold",
 })
 
 STATUS_HINTS = "? 直接输入与模型对话 · /img 或 Ctrl+V 贴图 · /help"
+
+SPINNER = "✶✳✲✱✻✽"
+
+THINKING_TIPS = (
+    "Tip: 直接输入文字即可与模型对话",
+    "Tip: /img 附带图片提问 · Ctrl+V 从剪贴板贴图",
+    "Tip: Ctrl+J 插入换行 · Esc 清空当前输入",
+    "Tip: /clear 清空上下文 · /model 更换模型",
+)
+
+
+def format_token_count(count: int) -> str:
+    """Compact token count for the thinking indicator (1234 -> 1.2k)."""
+    return f"{count / 1000:.1f}k" if count >= 1000 else str(count)
 
 
 class SlashCompleter(Completer):
@@ -319,6 +335,7 @@ async def interactive(
     model_state = {"label": model_label(settings)}
     usage_state: dict[str, str] = {"text": ""}
     paste_note: dict[str, str] = {"text": ""}
+    thinking_state = {"active": False, "started": 0.0, "chars": 0}
     pending_images: list[str] = []
     image_registry: dict[str, str] = {}
     image_counter = {"n": 0}
@@ -338,10 +355,26 @@ async def interactive(
     tty = stdin.isatty() and stdout.isatty()
     sub_session: PromptSession[str] | None = None
     handle: PromptHandle | None = None
+    ticker: asyncio.Task[None] | None = None
     if tty:  # pragma: no cover - real TTY integration
         def render_rules() -> StyleAndTextTuples:
             width = shutil.get_terminal_size(fallback=(80, 24)).columns
             return [("class:rule", "─" * max(8, width - 1))]
+
+        def render_thinking() -> StyleAndTextTuples:
+            # 思考区块：耗时 + 流式 token 估算 + 轮换小贴士，画在框体顶线上方。
+            elapsed = max(0.0, time.monotonic() - thinking_state["started"])
+            whole = int(elapsed)
+            minutes, seconds = divmod(whole, 60)
+            clock = f"{minutes}m {seconds:02d}s" if minutes else f"{seconds}s"
+            tokens = int(thinking_state["chars"]) // 2
+            usage = f" · ↓{format_token_count(tokens)}" if tokens else ""
+            tip = THINKING_TIPS[(whole // 10) % len(THINKING_TIPS)]
+            return [
+                ("class:thinking-spin", f"{SPINNER[whole % len(SPINNER)]} "),
+                ("class:thinking", f"思考中… ({clock}{usage})\n"),
+                ("class:thinking-tip", f"  ⎿ {tip}"),
+            ]
 
         def render_status() -> StyleAndTextTuples:
             width = shutil.get_terminal_size(fallback=(80, 24)).columns
@@ -440,6 +473,15 @@ async def interactive(
                 return rows
 
             layout = Layout(HSplit([
+                ConditionalContainer(
+                    Window(
+                        FormattedTextControl(render_thinking),
+                        height=Dimension(min=0, max=2),
+                        dont_extend_height=True,
+                    ),
+                    # 思考中区块只在等待回复时出现，位于框体顶线的上方。
+                    filter=Condition(lambda: bool(thinking_state["active"])),
+                ),
                 Window(FormattedTextControl(render_rules), height=1),
                 VSplit([
                     Window(FormattedTextControl([("class:arrow", "❯ ")]), width=2),
@@ -480,6 +522,15 @@ async def interactive(
     stdout.flush()
     if handle is not None:
         handle.start()
+
+        async def thinking_ticker() -> None:
+            # 每秒重绘一次思考区块：耗时/token 估算每秒跳动，小贴士每 10s 轮换。
+            while True:
+                await asyncio.sleep(1.0)
+                if thinking_state["active"]:
+                    handle.invalidate()
+
+        ticker = asyncio.create_task(thinking_ticker())
     async def ask(prompt: str) -> str:
         if sub_session is not None:
             return (await sub_session.prompt_async(prompt)).strip()
@@ -523,6 +574,7 @@ async def interactive(
         markdown = MarkdownStreamFormatter() if tty else None
 
         def print_delta(delta: str) -> None:
+            thinking_state["chars"] += len(delta)
             text = normalizer.feed(delta)
             if markdown is not None and text:
                 text = markdown.feed(text)
@@ -734,10 +786,14 @@ async def interactive(
                     handle.start()
                 continue
             if tty and handle is not None:  # pragma: no cover - real TTY integration
-                # 思考提示进状态行：框体保持可见，回复流式打印到框体上方。
-                usage_state["text"] = "✻ 思考中…"
+                # 思考区块画在框体顶线上方：耗时 + token 估算 + 小贴士。
+                thinking_state.update(active=True, started=time.monotonic(), chars=0)
                 handle.invalidate()
-                await dispatch_line(raw, handle.emitter(stdout), handle.emitter(stderr))
+                try:
+                    await dispatch_line(raw, handle.emitter(stdout), handle.emitter(stderr))
+                finally:
+                    thinking_state["active"] = False
+                    handle.invalidate()
             else:
                 async def emit(text: str) -> None:
                     stdout.write(text)
@@ -747,6 +803,8 @@ async def interactive(
 
                 await dispatch_line(raw, emit, emit_err)
     finally:
+        if ticker is not None:
+            ticker.cancel()
         if handle is not None:
             handle.stop()
             await handle.reap()
