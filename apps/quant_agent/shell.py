@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import shlex
 import shutil
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from io import StringIO
 from pathlib import Path
 from typing import TextIO, cast
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.application import Application
+from prompt_toolkit.application import Application, run_in_terminal
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
@@ -53,9 +54,111 @@ from apps.quant_agent.model_picker import OLLAMA_PROVIDER, configure_model
 
 HELP = command_help()
 
-# Ctrl+C returns this sentinel from the prompt, which read_line turns into
-# a KeyboardInterrupt so the shell exits like it did before the redesign.
+# Ctrl+C returns this sentinel from the prompt, which PromptHandle.read()
+# turns into a KeyboardInterrupt so the shell exits like it did before.
 CTRL_C_SENTINEL = "\x00bia-quit"
+
+
+class PromptHandle:
+    """One long-lived prompt application for the whole interactive session.
+
+    The accept key binding hands the typed text to the main loop via
+    :meth:`accept` without exiting the application, so the input frame stays
+    rendered while a reply streams into the terminal space below it (see
+    :meth:`terminal`).
+    """
+
+    def __init__(
+        self, builder: Callable[[PromptHandle], tuple[Application[str], Buffer]],
+    ) -> None:
+        self._builder = builder
+        self.application: Application[str] | None = None
+        self.buffer: Buffer | None = None
+        self.accept_event = asyncio.Event()
+        self.accepted = ""
+        self.run_task: asyncio.Task[str] | None = None
+
+    def start(self) -> None:
+        """Build and start the prompt application."""
+        self.accept_event = asyncio.Event()
+        self.accepted = ""
+        self.application, self.buffer = self._builder(self)
+        self.run_task = asyncio.create_task(self.application.run_async())
+
+    def accept(self, text: str) -> None:
+        self.accepted = text
+        self.accept_event.set()
+
+    def stop(self) -> None:
+        """Exit the application; the frame is erased via ``erase_when_done``."""
+        if (
+            self.application is not None
+            and self.run_task is not None
+            and not self.run_task.done()
+        ):
+            self.application.exit()
+
+    async def reap(self) -> None:
+        """Await the application task, swallowing late render errors."""
+        if self.run_task is None:
+            return
+        with contextlib.suppress(Exception):
+            await self.run_task
+
+    def invalidate(self) -> None:
+        """Redraw the frame (e.g. after the status text changed)."""
+        if self.application is not None:
+            self.application.invalidate()
+
+    def emitter(self, stream: TextIO) -> Callable[[str], Awaitable[None]]:
+        """Build an async writer whose output scrolls in above the frame."""
+        async def emit(text: str) -> None:
+            if not text:
+                return
+            if self.application is not None and self.run_task and not self.run_task.done():
+                await run_in_terminal(lambda: stream.write(text))
+            else:
+                stream.write(text)
+        return emit
+
+    async def _wait_accept(self) -> None:
+        await self.accept_event.wait()
+
+    async def _wait_app_ended(self) -> None:
+        if self.run_task is not None:
+            with contextlib.suppress(Exception):
+                await self.run_task
+
+    async def read(self) -> str:
+        """Wait for the next accepted, non-empty input line."""
+        while True:
+            if self.run_task is not None and self.run_task.done():
+                # The application ended on its own; treat it as EOF.
+                with contextlib.suppress(Exception):
+                    await self.run_task
+                raise KeyboardInterrupt
+            waiter = asyncio.ensure_future(self._wait_accept())
+            run_waiter: asyncio.Task[None] | None = None
+            if self.run_task is not None:
+                run_waiter = asyncio.ensure_future(self._wait_app_ended())
+            pending: list[asyncio.Task[None]] = [waiter]
+            if run_waiter is not None:
+                pending.append(run_waiter)
+            done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            waiter.cancel()
+            if run_waiter is not None and run_waiter in done and not self.accept_event.is_set():
+                # The application ended on its own; treat it as EOF.
+                raise KeyboardInterrupt
+            self.accept_event.clear()
+            text = self.accepted
+            self.accepted = ""
+            if text == CTRL_C_SENTINEL:
+                raise KeyboardInterrupt
+            if text.strip():
+                if self.buffer is not None:
+                    self.buffer.reset()
+                return text
+            # Empty submit: the frame stays and we keep waiting.
 
 BANNER = r"""
          ╭──╮   ╭──╮
@@ -152,14 +255,15 @@ def turn_rule() -> str:
 def _shell_key_bindings(
     register_image: Callable[[str], str],
     paste_note: dict[str, str],
+    accept: Callable[[str], None],
 ) -> KeyBindings:  # pragma: no cover - prompt-toolkit callbacks
-    """Ctrl+J adds a newline; Ctrl+V/Alt+V paste; Ctrl+C quits bia."""
+    """Ctrl+J adds a newline; Ctrl+V/Alt+V paste; Ctrl+C hands back the sentinel."""
     bindings = KeyBindings()
 
     @bindings.add("c-c")
     def _quit(event: object) -> None:
-        # Ctrl+C 退出 bia：返回哨兵值，read_line 检测后抛出 KeyboardInterrupt。
-        event.app.exit(CTRL_C_SENTINEL)  # type: ignore[attr-defined]
+        # Ctrl+C：把哨兵值交给主循环，由外层退出并回收应用。
+        accept(CTRL_C_SENTINEL)
 
     @bindings.add("c-j")
     def _insert_newline(event: object) -> None:
@@ -233,6 +337,7 @@ async def interactive(
 
     tty = stdin.isatty() and stdout.isatty()
     sub_session: PromptSession[str] | None = None
+    handle: PromptHandle | None = None
     if tty:  # pragma: no cover - real TTY integration
         def render_rules() -> StyleAndTextTuples:
             width = shutil.get_terminal_size(fallback=(80, 24)).columns
@@ -255,7 +360,7 @@ async def interactive(
 
         sub_session = PromptSession()
 
-        def build_prompt_app() -> tuple[Application[str], Buffer]:
+        def build_prompt_app(handle: PromptHandle) -> tuple[Application[str], Buffer]:
             menu_index = [0]
             menu_hidden = [False]
 
@@ -271,7 +376,7 @@ async def interactive(
                 multiline=True, completer=SlashCompleter(), complete_while_typing=True,
                 on_text_changed=on_text_changed,
             )
-            bindings = _shell_key_bindings(register_image, paste_note)
+            bindings = _shell_key_bindings(register_image, paste_note, handle.accept)
 
             @bindings.add("enter")
             def _accept(event: object) -> None:
@@ -284,11 +389,11 @@ async def interactive(
                         buffer.cursor_position = len(chosen)
                         event.app.invalidate()  # type: ignore[attr-defined]
                         return
-                event.app.exit(event.current_buffer.document.text)  # type: ignore[attr-defined]
+                handle.accept(buffer.document.text)
 
             @bindings.add("escape")
             def _cancel(event: object) -> None:
-                event.app.exit("")  # type: ignore[attr-defined]
+                handle.accept("")
 
             @bindings.add("up")
             def _menu_up(event: object) -> None:
@@ -369,24 +474,12 @@ async def interactive(
             )
             return application, buffer
 
-        async def read_line() -> str:
-            # 思考提示行画在回显行下方，回复首字到达时原位清除。
-            application, _ = build_prompt_app()
-            text = await application.run_async()
-            if text == CTRL_C_SENTINEL:
-                raise KeyboardInterrupt
-            if text.strip():
-                # 分隔线只画在首轮回显上方，隔开欢迎面板与对话历史。
-                if not turn_counter["n"]:
-                    stdout.write(turn_rule())
-                turn_counter["n"] += 1
-                stdout.write(f"❯ {text}\n")
-                if tty:
-                    stdout.write("  ✻ 思考中…\n")
-            return text
+        handle = PromptHandle(build_prompt_app)
     stdout.write(BANNER)
     stdout.write(welcome_panel(settings))
     stdout.flush()
+    if handle is not None:
+        handle.start()
     async def ask(prompt: str) -> str:
         if sub_session is not None:
             return (await sub_session.prompt_async(prompt)).strip()
@@ -399,179 +492,220 @@ async def interactive(
         return (await asyncio.to_thread(stdin.readline)).strip()
     chat: ChatSession | None = None
 
-    async def chat_turn(text: str) -> None:
+    async def chat_turn(
+        text: str,
+        emit: Callable[[str], Awaitable[None]],
+        emit_err: Callable[[str], Awaitable[None]],
+    ) -> None:
         nonlocal chat
         try:
             cleaned, images = extract_images(resolve_image_tokens(text))
             for path in pending_images:
                 images = images + (image_data_url(path),)
         except ChatInputError as error:
-            stderr.write(f"{error}\n")
+            await emit_err(f"{error}\n")
             return
         if not cleaned:
             cleaned = "请看这张图片"
         missing = find_missing_images(text)
         if missing:
-            stderr.write(
+            await emit_err(
                 "⚠ 未找到图片文件：" + "、".join(missing)
                 + "（确认路径是否正确，或截图后用 /img 从剪贴板添加）\n"
             )
         if chat is None or chat.label != model_state["label"]:
             client = build_chat_client(Settings.from_env())
             if client is None:
-                stderr.write("还没有配置模型：先输入 /model 选择模型，再直接输入文字对话。\n")
+                await emit_err("还没有配置模型：先输入 /model 选择模型，再直接输入文字对话。\n")
                 return
             chat = ChatSession(client, label=model_state["label"])
         normalizer = WhitespaceNormalizer()
         markdown = MarkdownStreamFormatter() if tty else None
         emitted = {"chars": 0}
 
-        def clear_thinking() -> str:
-            """清掉回显行下方的"✻ 思考中…"行，回复原地开始，不留空行。"""
-            if not tty:
-                return ""
-            return "\x1b[1A\r\x1b[2K"
-
         def print_delta(delta: str) -> None:
-            if not emitted["chars"]:
-                stdout.write(clear_thinking())
-                if images:
-                    stdout.write(f"[已附带 {len(images)} 张图片]\n")
-            emitted["chars"] += len(delta)
             text = normalizer.feed(delta)
             if markdown is not None and text:
                 text = markdown.feed(text)
             if not text:
                 return
-            stdout.write(text)
-            stdout.flush()
+            if not emitted["chars"] and images:
+                asyncio.ensure_future(emit(f"[已附带 {len(images)} 张图片]\n"))
+            emitted["chars"] += len(delta)
+            asyncio.ensure_future(emit(text))
 
         started = time.monotonic()
         try:
             response = await chat.send(cleaned, on_delta=print_delta, images=images)
         except LlmError as error:
-            stderr.write(clear_thinking())
-            stderr.write(describe_llm_error(error) + "\n")
+            await emit_err(describe_llm_error(error) + "\n")
             return
         pending_images.clear()
         tail = normalizer.flush()
         if markdown is not None:
             tail = markdown.feed(tail) + markdown.flush()
         if tail:
-            stdout.write(tail)
+            if tty and not tail.endswith("\n"):
+                tail += "\n"
+            await emit(tail)
         seconds = time.monotonic() - started
-        stdout.write(blank_line_separator(tail, tty))
-        if tty:
-            usage_state["text"] = usage_note(response, seconds)
+        if not tty:
+            await emit(blank_line_separator(tail, tty))
+            await emit(format_footer(response, seconds))
         else:
-            stdout.write(format_footer(response, seconds))
+            # 输入框（含状态行）仍活在上层：状态行随后显示本次用量。
+            usage_state["text"] = usage_note(response, seconds)
+            if handle is not None:
+                handle.invalidate()
+
+    async def write_echo(
+        raw: str, emit: Callable[[str], Awaitable[None]],
+    ) -> None:
+        # 回显输入行；分隔线只画在首轮回显上方，隔开欢迎面板与对话历史。
+        if not tty:
+            return
+        if not turn_counter["n"]:
+            await emit(turn_rule())
+        turn_counter["n"] += 1
+        await emit(f"❯ {raw}\n")
+
+    async def dispatch_line(
+        raw: str,
+        emit: Callable[[str], Awaitable[None]],
+        emit_err: Callable[[str], Awaitable[None]],
+    ) -> None:
+        await write_echo(raw, emit)
+        if raw.startswith("/help"):
+            parts = raw.split(maxsplit=1)
+            try:
+                await emit(command_help(parts[1] if len(parts) == 2 else None))
+            except KeyError:
+                await emit_err(f"Unknown command: {parts[1]}\n")
+            return
+        if raw in {"/loop", "/loop status", "/loop services", "/loop lag",
+                   "/loop checkpoints"}:
+            snapshot = components.engine.health()
+            if raw == "/loop services":
+                await emit("".join(
+                    f"{name:<24} {state.value}\n"
+                    for name, state in snapshot.services.items()
+                ))
+            elif raw in {"/loop lag", "/loop checkpoints"}:
+                operational = await components.service.operational_snapshot()
+                if raw == "/loop lag":
+                    lag = cast(dict[str, int], operational["lag"])
+                    await emit(f"commands={lag['commands']} outbox={lag['outbox']}\n")
+                else:
+                    checkpoints = cast(list[dict[str, object]], operational["checkpoints"])
+                    if not checkpoints:
+                        await emit("No schedule checkpoints.\n")
+                    else:
+                        await emit("".join(
+                            f"{item['schedule_id']} {item['occurrence_key']} {item['status']}\n"
+                            for item in checkpoints
+                        ))
+            else:
+                await emit(
+                    f"LoopEngine {snapshot.system.value} · instance {snapshot.instance_id}\n"
+                )
+            return
+        if raw == "/img":
+            kind, payload = capture_clipboard()
+            if kind == "image" and payload:
+                token = register_image(payload)
+                pending_images.append(payload)
+                await emit(f"✓ 已添加 {token}，下一条消息将自动附带。\n")
+            elif kind == "text" and payload:
+                await emit("剪贴板里是文本，直接输入发送即可（/img 只附带图片）。\n")
+            else:
+                await emit("剪贴板里没有图片（或 PowerShell 不可用）。\n")
+            return
+        if raw == "/clear":
+            if chat is not None:
+                chat.clear()
+            await emit("✓ 已清空对话上下文。\n")
+            return
+        if not raw.startswith("/"):
+            await chat_turn(raw, emit, emit_err)
+            return
+        if raw.startswith("/") and " " not in raw:
+            matches = tuple(command for command in COMMANDS if command.startswith(raw))
+            if matches and raw not in COMMANDS:
+                await emit("Matches: " + "  ".join(matches) + "\n")
+                return
+        try:
+            arguments = slash_arguments(raw)
+        except ValueError as error:
+            await emit_err(f"Invalid command: {error}\n")
+            return
+        if arguments is None:
+            await emit_err("Unknown command. Type /help.\n")
+            return
+        command_out, command_err = StringIO(), StringIO()
+        code = await run(
+            ("--database", str(database_path), *arguments),
+            command_out, command_err, stdin,
+        )
+        await emit(command_out.getvalue())
+        await emit_err(command_err.getvalue())
+        if code != EXIT_OK and not command_err.getvalue():
+            await emit_err(f"Command exited with status {code}.\n")
+        if serving.done():
+            await serving
     try:
         while True:
             if tty:  # pragma: no cover - real TTY integration
+                assert handle is not None
                 try:
-                    line = await read_line()
+                    raw = (await handle.read()).strip()
                 except (EOFError, KeyboardInterrupt):
                     break
-                line += "\n"
             else:
                 stdout.write("bia> ")
                 stdout.flush()
                 line = await asyncio.to_thread(stdin.readline)
-            if not line:
-                break
-            raw = line.strip()
+                if not line:
+                    break
+                raw = line.strip()
             if not raw:
                 continue
             if raw in {"/exit", "/quit"}:
                 break
-            if raw.startswith("/help"):
-                parts = raw.split(maxsplit=1)
-                try:
-                    stdout.write(command_help(parts[1] if len(parts) == 2 else None))
-                except KeyError:
-                    stderr.write(f"Unknown command: {parts[1]}\n")
-                continue
             if raw == "/model":
+                # /model 需要嵌套交互输入：先退出主输入框，结束后重建。
+                async def echo(text: str) -> None:
+                    stdout.write(text)
+
+                if handle is not None:
+                    handle.stop()
+                    await handle.reap()
+                await write_echo(raw, echo)
                 selection = await configure_model(
                     Settings.from_env(), ask=ask, ask_secret=ask_secret, stdout=stdout,
                     stderr=stderr, interactive=tty,
                 )
                 if selection is not None:
                     model_state["label"] = selection.model
+                if handle is not None:
+                    handle.start()
                 continue
-            if raw in {"/loop", "/loop status", "/loop services", "/loop lag",
-                       "/loop checkpoints"}:
-                snapshot = components.engine.health()
-                if raw == "/loop services":
-                    stdout.writelines(
-                        f"{name:<24} {state.value}\n"
-                        for name, state in snapshot.services.items()
-                    )
-                elif raw in {"/loop lag", "/loop checkpoints"}:
-                    operational = await components.service.operational_snapshot()
-                    if raw == "/loop lag":
-                        lag = cast(dict[str, int], operational["lag"])
-                        stdout.write(
-                            f"commands={lag['commands']} outbox={lag['outbox']}\n"
-                        )
-                    else:
-                        checkpoints = cast(list[dict[str, object]], operational["checkpoints"])
-                        if not checkpoints:
-                            stdout.write("No schedule checkpoints.\n")
-                        else:
-                            stdout.writelines(
-                                f"{item['schedule_id']} {item['occurrence_key']} {item['status']}\n"
-                                for item in checkpoints
-                            )
-                else:
-                    stdout.write(
-                        f"LoopEngine {snapshot.system.value} · instance {snapshot.instance_id}\n"
-                    )
-                continue
-            if raw == "/img":
-                kind, payload = capture_clipboard()
-                if kind == "image" and payload:
-                    token = register_image(payload)
-                    pending_images.append(payload)
-                    stdout.write(f"✓ 已添加 {token}，下一条消息将自动附带。\n")
-                elif kind == "text" and payload:
-                    stdout.write("剪贴板里是文本，直接输入发送即可（/img 只附带图片）。\n")
-                else:
-                    stdout.write("剪贴板里没有图片（或 PowerShell 不可用）。\n")
-                continue
-            if raw == "/clear":
-                if chat is not None:
-                    chat.clear()
-                stdout.write("✓ 已清空对话上下文。\n")
-                continue
-            if not raw.startswith("/"):
-                await chat_turn(raw)
-                continue
-            if raw.startswith("/") and " " not in raw:
-                matches = tuple(command for command in COMMANDS if command.startswith(raw))
-                if matches and raw not in COMMANDS:
-                    stdout.write("Matches: " + "  ".join(matches) + "\n")
-                    continue
-            try:
-                arguments = slash_arguments(raw)
-            except ValueError as error:
-                stderr.write(f"Invalid command: {error}\n")
-                continue
-            if arguments is None:
-                stderr.write("Unknown command. Type /help.\n")
-                continue
-            command_out, command_err = StringIO(), StringIO()
-            code = await run(
-                ("--database", str(database_path), *arguments),
-                command_out, command_err, stdin,
-            )
-            stdout.write(command_out.getvalue())
-            stderr.write(command_err.getvalue())
-            if code != EXIT_OK and not command_err.getvalue():
-                stderr.write(f"Command exited with status {code}.\n")
-            if serving.done():
-                await serving
+            if tty and handle is not None:  # pragma: no cover - real TTY integration
+                # 思考提示进状态行：框体保持可见，回复流式打印到框体上方。
+                usage_state["text"] = "✻ 思考中…"
+                handle.invalidate()
+                await dispatch_line(raw, handle.emitter(stdout), handle.emitter(stderr))
+            else:
+                async def emit(text: str) -> None:
+                    stdout.write(text)
+
+                async def emit_err(text: str) -> None:
+                    stderr.write(text)
+
+                await dispatch_line(raw, emit, emit_err)
     finally:
+        if handle is not None:
+            handle.stop()
+            await handle.reap()
         components.engine.request_shutdown()
         await serving
         await components.database.close()
