@@ -136,13 +136,110 @@ class WhitespaceNormalizer:
         return text
 
 
+BOLD = "\x1b[1m"
+ITALIC = "\x1b[3m"
+DIM = "\x1b[2m"
+STRIKE = "\x1b[9m"
+HEADING = "\x1b[1m\x1b[36m"
+CODE = "\x1b[93m"
+RESET = "\x1b[0m"
+
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+_HR_RE = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$")
+_UL_ITEM_RE = re.compile(r"^(\s*)[-*]\s+(.*)$")
+_QUOTE_RE = re.compile(r"^>\s?(.*)$")
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+_ITALIC_RE = re.compile(r"(?<!\*)\*([^*\s][^*]*?)\*(?!\*)")
+_STRIKE_RE = re.compile(r"~~(.+?)~~")
+_CODE_SPAN_RE = re.compile(r"`([^`]+)`")
+_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+
+
+def _render_inline(text: str) -> str:
+    """行内样式：代码段先隔离，避免其中的符号被二次转换。"""
+    parts = _CODE_SPAN_RE.split(text)
+    out: list[str] = []
+    for index, part in enumerate(parts):
+        if index % 2 == 1:
+            out.append(f"{CODE}{part}{RESET}")
+            continue
+        part = _LINK_RE.sub(r"\1 (\2)", part)
+        part = _BOLD_RE.sub(f"{BOLD}\\1{RESET}", part)
+        part = _ITALIC_RE.sub(f"{ITALIC}\\1{RESET}", part)
+        part = _STRIKE_RE.sub(f"{STRIKE}\\1{RESET}", part)
+        out.append(part)
+    return "".join(out)
+
+
+class MarkdownStreamFormatter:
+    """把 AI 回复的 Markdown 流式转换为终端样式（行缓冲，无重绘）。
+
+    完整的行立即渲染输出；未闭合的最后一行持有到下一块或 flush。
+    代码块成对出现：开栏显示语言标注，内容缩进加暗色，闭栏不占行。
+    """
+
+    def __init__(self) -> None:
+        self._pending = ""
+        self._in_code = False
+
+    def feed(self, chunk: str) -> str:
+        if not chunk:
+            return ""
+        self._pending += chunk
+        if "\n" not in self._pending:
+            return ""
+        *lines, rest = self._pending.split("\n")
+        self._pending = rest
+        pieces: list[str] = []
+        for line in lines:
+            rendered = self._render_line(line)
+            if not rendered and line:
+                continue  # 闭合围栏：完全不占行
+            pieces.append(rendered)
+        if not pieces:
+            return ""
+        return "\n".join(pieces) + "\n"
+
+    def flush(self) -> str:
+        if not self._pending:
+            return ""
+        line, self._pending = self._pending, ""
+        return self._render_line(line)
+
+    def _render_line(self, line: str) -> str:
+        if line.startswith("```"):
+            if self._in_code:
+                self._in_code = False
+                return ""
+            self._in_code = True
+            lang = line[3:].strip()
+            return f"{DIM}── {lang or 'code'} ──{RESET}"
+        if self._in_code:
+            return f"{DIM}  {line}{RESET}" if line else ""
+        if not line.strip():
+            return line
+        heading = _HEADING_RE.match(line)
+        if heading:
+            return f"{HEADING}{heading.group(2)}{RESET}"
+        if _HR_RE.match(line):
+            return f"{DIM}{'─' * 8}{RESET}"
+        quote = _QUOTE_RE.match(line)
+        if quote:
+            return f"{DIM}▏ {quote.group(1)}{RESET}"
+        item = _UL_ITEM_RE.match(line)
+        if item:
+            return f"{item.group(1)}• {_render_inline(item.group(2))}"
+        return _render_inline(line)
+
+
 def blank_line_separator(tail: str, tty: bool) -> str:
     """Cursor placement after a reply tail so one blank line follows it.
 
-    ``tail`` is the (possibly empty) trailing newline run that was actually
-    displayed. TTY mode erases surplus blank lines with cursor movements.
+    ``tail`` is the (possibly styled) reply text that was actually displayed;
+    only real newlines count, escape sequences must not erase transcript rows.
+    TTY mode erases surplus blank lines with cursor movements.
     """
-    newlines = len(tail)
+    newlines = tail.count("\n")
     if not tty:
         return "" if newlines else "\n"
     if newlines == 0:
