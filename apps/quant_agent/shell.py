@@ -433,16 +433,16 @@ async def interactive(
             return "\x1b[1A\r\x1b[2K"
 
         def print_delta(delta: str) -> None:
-            text = normalizer.feed(delta)
-            if markdown is not None and text:
-                text = markdown.feed(text)
-            if not emitted["chars"] and not text:
-                return
             if not emitted["chars"]:
                 stdout.write(clear_thinking())
                 if images:
                     stdout.write(f"[已附带 {len(images)} 张图片]\n")
             emitted["chars"] += len(delta)
+            text = normalizer.feed(delta)
+            if markdown is not None and text:
+                text = markdown.feed(text)
+            if not text:
+                return
             stdout.write(text)
             stdout.flush()
 
