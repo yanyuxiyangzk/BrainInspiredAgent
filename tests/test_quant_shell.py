@@ -75,6 +75,17 @@ def test_welcome_panel_reflects_model_state() -> None:
     assert "模型   glm-4-flash ✓ 已就绪 · /model 可更换" in configured
     assert "上手   直接输入文字即可对话 · /img 贴图 · /help 全部命令" in configured
     assert "缺少 API Key · /model 补充" in welcome_panel(Settings(model_url="https://x/v1", model_name="m"))
+    rule_lines = [line for line in welcome_panel(Settings()).splitlines()
+                  if line and set(line) == {"─"}]
+    assert len(rule_lines) == 1  # 只保留面板顶线，历史分隔交给 turn_rule
+
+
+def test_turn_rule_spans_width_and_stays_dim() -> None:
+    from apps.quant_agent.shell import turn_rule
+
+    rule = turn_rule()
+    assert rule.startswith("\x1b[2m") and rule.endswith("─\x1b[0m\n")
+    assert "─" * 8 in rule and "\n" not in rule.rstrip("\n")
 
 
 def test_model_label_summarizes_state() -> None:

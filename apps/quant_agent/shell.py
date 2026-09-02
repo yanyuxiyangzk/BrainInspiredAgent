@@ -16,10 +16,12 @@ from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import (  # type: ignore[attr-defined]
+    ConditionalContainer,
     Dimension,
     HSplit,
     VSplit,
@@ -49,10 +51,6 @@ from apps.quant_agent.commands import COMMAND_SPECS, COMMANDS, command_help
 from apps.quant_agent.model_picker import OLLAMA_PROVIDER, configure_model
 
 HELP = command_help()
-
-# Rows pre-reserved before each prompt so the framed input always fits on
-# screen: rule + pad + input (up to 8 lines) + pad + rule + status + slack.
-PROMPT_RESERVED_ROWS = 18
 
 # Ctrl+C returns this sentinel from the prompt, which read_line turns into
 # a KeyboardInterrupt so the shell exits like it did before the redesign.
@@ -131,12 +129,23 @@ def welcome_panel(settings: Settings) -> str:
         model_line = "未配置 · /model 选择模型"
     width = shutil.get_terminal_size(fallback=(80, 24)).columns - 1
     rule = "─" * max(8, width)
+    # 底部不再画线：首轮回显上方会画一条分隔线（turn_rule），
+    # 欢迎语与对话历史之间由此隔开。
     return "\n".join([
         rule,
         f"  模型   {model_line}",
         "  上手   直接输入文字即可对话 · /img 贴图 · /help 全部命令",
-        rule,
     ]) + "\n"
+
+
+def turn_rule() -> str:
+    """Dim full-width rule drawn above the first echoed turn only.
+
+    Separates the welcome panel from the conversation transcript; later turns
+    follow each other without extra lines.
+    """
+    width = shutil.get_terminal_size(fallback=(80, 24)).columns - 1
+    return f"\x1b[2m{'─' * max(8, width)}\x1b[0m\n"
 
 
 def _shell_key_bindings(
@@ -208,6 +217,7 @@ async def interactive(
     pending_images: list[str] = []
     image_registry: dict[str, str] = {}
     image_counter = {"n": 0}
+    turn_counter = {"n": 0}
 
     def register_image(path: str) -> str:
         image_counter["n"] += 1
@@ -323,17 +333,9 @@ async def interactive(
                     rows.append((style, f"  {item.text.ljust(width)}  {summary}\n"))
                 return rows
 
-            def render_filler() -> StyleAndTextTuples:
-                # 尾部填充行吸收预留区的剩余行数：框体（横线+输入+状态行）
-                # 保持紧凑，总高恒等于预留的 18 行，状态行不会被顶远。
-                input_rows = min(max(len(buffer.document.lines), 1), 8)
-                menu_rows = 0 if menu_hidden[0] else min(len(current_completions()), 12)
-                slack = max(0, PROMPT_RESERVED_ROWS - 5 - input_rows - menu_rows)
-                if slack <= 0:
-                    return []
-                return [("class:filler", "\n" * (slack - 1))]
-
             layout = Layout(HSplit([
+                # 状态行放在框体第一行，紧贴上方对话输出，不留空隙。
+                Window(FormattedTextControl(render_status), height=1),
                 Window(FormattedTextControl(render_rules), height=1),
                 VSplit([
                     Window(FormattedTextControl([("class:arrow", "❯ ")]), width=2),
@@ -341,37 +343,45 @@ async def interactive(
                         content=BufferControl(buffer=buffer),
                         wrap_lines=True,
                         height=Dimension(min=1, max=8),
+                        # 不把剩余垂直空间撑给输入框：高度只随内容增长。
+                        dont_extend_height=True,
                     ),
                 ]),
-                Window(FormattedTextControl(render_status), height=1),
                 Window(FormattedTextControl(render_rules), height=1),
-                Window(
-                    content=FormattedTextControl(render_menu),
-                    height=Dimension(min=0, max=12),
-                ),
-                Window(
-                    content=FormattedTextControl(render_filler),
-                    height=Dimension(min=0, max=PROMPT_RESERVED_ROWS),
+                ConditionalContainer(
+                    Window(
+                        content=FormattedTextControl(render_menu),
+                        height=Dimension(min=0, max=12),
+                        dont_extend_height=True,
+                    ),
+                    # 无补全时菜单整体移除，避免框体下方留出空行。
+                    filter=Condition(
+                        lambda: bool(current_completions()) and not menu_hidden[0]
+                    ),
                 ),
             ]))
+            # erase_when_done 让 prompt_toolkit 退出时自行擦除输入框：它感知
+            # 滚动，不会像手动"预留+擦除"那样在屏幕底部覆盖并吃掉历史回复。
             application: Application[str] = Application(
-                layout=layout, key_bindings=bindings, style=SHELL_STYLE, full_screen=False,
+                layout=layout, key_bindings=bindings, style=SHELL_STYLE,
+                full_screen=False, erase_when_done=True,
             )
             return application, buffer
 
         async def read_line() -> str:
-            # 预留 18 行并回退到预留区顶部：框体 + 菜单 + 尾部填充总高恒为 18。
-            # 提交后擦除整块；思考提示行画在回显行上方，回复首字到达时清除。
-            stdout.write("\n" * PROMPT_RESERVED_ROWS + "\x1b[1A" * PROMPT_RESERVED_ROWS)
+            # 思考提示行画在回显行下方，回复首字到达时原位清除。
             application, _ = build_prompt_app()
             text = await application.run_async()
-            stdout.write("\x1b[2K" + "\x1b[1A\x1b[2K" * (PROMPT_RESERVED_ROWS - 1))
             if text == CTRL_C_SENTINEL:
                 raise KeyboardInterrupt
             if text.strip():
+                # 分隔线只画在首轮回显上方，隔开欢迎面板与对话历史。
+                if not turn_counter["n"]:
+                    stdout.write(turn_rule())
+                turn_counter["n"] += 1
+                stdout.write(f"❯ {text}\n")
                 if tty:
                     stdout.write("  ✻ 思考中…\n")
-                stdout.write(f"❯ {text}\n")
             return text
     stdout.write(BANNER)
     stdout.write(welcome_panel(settings))
@@ -414,19 +424,18 @@ async def interactive(
         normalizer = WhitespaceNormalizer()
         emitted = {"chars": 0}
 
-        def clear_thinking_above(echo_lines: int) -> str:
-            """清掉回显行上方的"✻ 思考中…"行，光标回到回复起始行。"""
+        def clear_thinking() -> str:
+            """清掉回显行下方的"✻ 思考中…"行，回复原地开始，不留空行。"""
             if not tty:
                 return ""
-            up = echo_lines + 2
-            return "\x1b[1A" * up + "\r\x1b[2K" + "\x1b[1B" * up
+            return "\x1b[1A\r\x1b[2K"
 
         def print_delta(delta: str) -> None:
             text = normalizer.feed(delta)
             if not emitted["chars"] and not text:
                 return
             if not emitted["chars"]:
-                stdout.write(clear_thinking_above(max(1, len(cleaned.splitlines()))))
+                stdout.write(clear_thinking())
                 if images:
                     stdout.write(f"[已附带 {len(images)} 张图片]\n")
             emitted["chars"] += len(delta)
@@ -437,7 +446,7 @@ async def interactive(
         try:
             response = await chat.send(cleaned, on_delta=print_delta, images=images)
         except LlmError as error:
-            stderr.write(clear_thinking_above(max(1, len(cleaned.splitlines()))))
+            stderr.write(clear_thinking())
             stderr.write(describe_llm_error(error) + "\n")
             return
         pending_images.clear()
