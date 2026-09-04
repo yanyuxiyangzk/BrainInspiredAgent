@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import tempfile
 from collections.abc import Mapping
@@ -65,7 +66,6 @@ from domain_sdk.dna_fitness import (
     DnaFitnessObservation,
     DnaFitnessPolicy,
     DnaFitnessProjector,
-    DnaFitnessSnapshot,
 )
 
 BASELINE_DNA_ID = "workflow.market_summary"
@@ -103,23 +103,35 @@ class SeedReport:
         }
 
 
-async def seed_baseline(
-    database: SQLiteDatabase, *, start: datetime = DEFAULT_START, days: int = 5,
+async def seed_market_days(
+    database: SQLiteDatabase, *, workflow_document: Mapping[str, object],
+    dna_id: str, version: str, content_digest: str, start: datetime, days: int,
     symbols: tuple[str, ...] = ("INDEX.TEST",), artifacts_dir: Path | None = None,
-) -> SeedReport:
-    """Run one governed market summary per virtual day and project fitness."""
+    registry: WorkflowRegistry | None = None, window_id: str | None = None,
+    start_offset_seconds: float = 0.0,
+) -> tuple[SeedDay, ...]:
+    """Run governed market summaries for ``days`` virtual days and project fitness.
+
+    Generalized seeding: any validated workflow document can accumulate
+    attributed fitness observations, which is how a candidate DNA (shadow
+    variant) builds the history that dataset construction requires.
+    ``start_offset_seconds`` separates id spaces when several variants seed
+    from the same nominal window start.
+    """
     if days < 1:
         raise SeedError("seed requires at least one day")
     if start.tzinfo is None or start.utcoffset() is None:
         raise SeedError("seed start must be timezone-aware")
     clock = FakeClock(start)
+    if start_offset_seconds:
+        clock.advance(start_offset_seconds)
     identifiers = Uuid7Generator(clock, random_bits=lambda bits: 0)
-    await _ensure_workflow_dna(database, clock, identifiers)
-    baseline = await _active_baseline(database)
 
-    registry = WorkflowRegistry()
-    registered = registry.register(MARKET_SUMMARY_WORKFLOW, status=WorkflowStatus.VALIDATED)
-    workflow = registry.activate(registered.workflow_id, registered.version)
+    active_registry = registry or WorkflowRegistry()
+    registered = active_registry.register(
+        workflow_document, status=WorkflowStatus.VALIDATED,
+    )
+    workflow = active_registry.activate(registered.workflow_id, registered.version)
     capabilities = CapabilityRegistry()
     skills = SkillRegistry(capabilities)
     bundle = install_fake_skills(capabilities, skills, clock=clock, database=database)
@@ -141,7 +153,7 @@ async def seed_baseline(
         )
     artifacts = LocalArtifactStore(artifacts_dir or Path(tempfile.mkdtemp(prefix="seed-art-")))
     runtime = WorkflowRuntime(
-        database=database, registry=registry,
+        database=database, registry=active_registry,
         skill_invoker=SkillInvoker(skills, bundle.adapters),
         skill_context=SkillContext(
             clock, _SilentLogger(), CancellationToken(), artifacts, {}, ResourceBudget(100),
@@ -155,31 +167,63 @@ async def seed_baseline(
         permissions, RiskBudget(1000, 100, 600), RiskBudget(1000, 100, 600),
     )
     evaluator = OutcomeEvaluator(database, clock, identifiers, OutcomePolicy("1.0"))
-    window_id = f"seed-{start:%Y%m%d}-{days}"
+    resolved_window = window_id or f"seed-{dna_id}-{version}-{start:%Y%m%d}-{days}"
     projector = DnaFitnessProjector(database, clock, identifiers, DnaFitnessPolicy(
-        "seed/1.0", window_id, start, start + timedelta(days=days + 1),
+        "seed/1.0", resolved_window, start, start + timedelta(days=days + 1),
         minimum_samples=days,
     ))
 
     seeded: list[SeedDay] = []
     day_seconds = timedelta(days=1).total_seconds()
     for offset in range(days):
-        clock.advance(offset * day_seconds)
+        if offset:
+            clock.advance(day_seconds)
         trade_date = (start + timedelta(days=offset)).date().isoformat()
-        correlation = f"00000000-0000-0000-0000-{offset:012d}"
+        correlation = f"00000000-0000-0000-0000-{int(hashlib.sha256(f'{dna_id}:{version}'.encode()).hexdigest()[:8], 16) % 10000:04x}{offset:08d}"
         outcome = await _run_day(
-            database, clock, identifiers, registry, workflow, motor, evaluator,
+            database, clock, identifiers, active_registry, workflow, motor, evaluator,
             risk_policy, trade_date, correlation, tuple(symbols), bindings,
         )
-        observation = await _observation(database, outcome, baseline)
+        observation = await _observation(
+            database, outcome,
+            {"dna_id": dna_id, "version": version, "content_digest": content_digest},
+        )
         await projector.project(observation)
         seeded.append(SeedDay(trade_date, outcome.evaluation_id, correlation,
                               outcome.successful))
+    return tuple(seeded)
 
-    snapshot: DnaFitnessSnapshot = await projector.get(baseline["dna_id"], baseline["version"])
+
+async def seed_baseline(
+    database: SQLiteDatabase, *, start: datetime = DEFAULT_START, days: int = 5,
+    symbols: tuple[str, ...] = ("INDEX.TEST",), artifacts_dir: Path | None = None,
+) -> SeedReport:
+    """Run one governed market summary per virtual day and project fitness."""
+    if days < 1:
+        raise SeedError("seed requires at least one day")
+    if start.tzinfo is None or start.utcoffset() is None:
+        raise SeedError("seed start must be timezone-aware")
+    clock = FakeClock(start)
+    identifiers = Uuid7Generator(clock, random_bits=lambda bits: 0)
+    await _ensure_workflow_dna(database, clock, identifiers)
+    baseline = await _active_baseline(database)
+    seeded = await seed_market_days(
+        database, workflow_document=MARKET_SUMMARY_WORKFLOW,
+        dna_id=baseline["dna_id"], version=baseline["version"],
+        content_digest=baseline["content_digest"], start=start, days=days,
+        symbols=symbols, artifacts_dir=artifacts_dir,
+        window_id=f"seed-{start:%Y%m%d}-{days}",
+    )
+    projector_window = f"seed-{start:%Y%m%d}-{days}"
+    snapshot = await DnaFitnessProjector(
+        database, clock, identifiers, DnaFitnessPolicy(
+            "seed/1.0", projector_window, start, start + timedelta(days=days + 1),
+            minimum_samples=days,
+        ),
+    ).get(baseline["dna_id"], baseline["version"])
     return SeedReport(
-        baseline["dna_id"], baseline["version"], baseline["content_digest"], window_id,
-        tuple(seeded), snapshot.sample_count, snapshot.readiness.value,
+        baseline["dna_id"], baseline["version"], baseline["content_digest"], projector_window,
+        seeded, snapshot.sample_count, snapshot.readiness.value,
     )
 
 

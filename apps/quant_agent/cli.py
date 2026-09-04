@@ -8,7 +8,7 @@ import json
 import signal
 import sqlite3
 from collections.abc import Mapping, Sequence
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Any, TextIO, cast
 
@@ -90,7 +90,7 @@ def parser() -> argparse.ArgumentParser:
         "skills": ("list", "show", "health", "bindings", "enable", "disable"),
         "workflows": ("list", "active", "show", "runs", "validate", "activate", "deprecate"),
         "dna": ("list", "active", "show", "lineage", "explain", "executions", "transition"),
-        "evolution": ("candidates", "fitness", "datasets", "replay", "compare", "campaigns", "explain", "promote", "rollback", "kill"),
+        "evolution": ("candidates", "fitness", "datasets", "replay", "compare", "campaigns", "explain", "promote", "rollback", "kill", "build-dataset", "propose"),
         "schedules": ("list", "show", "history", "trigger"),
     }.items():
         query = commands.add_parser(name, help=f"query {name}")
@@ -115,6 +115,13 @@ def parser() -> argparse.ArgumentParser:
             query.add_argument("--revision", type=int)
             query.add_argument("--reason")
             query.add_argument("--yes", action="store_true")
+            query.add_argument("--window-days", type=int, default=5)
+            query.add_argument("--candidate-digests", nargs="*")
+            query.add_argument("--start")
+            query.add_argument("--dataset-id")
+            query.add_argument("--dataset-version", default="1.0.0")
+            query.add_argument("--operations")
+            query.add_argument("--hypothesis")
     subscriptions_query = commands.add_parser("subscriptions", help="notification preferences")
     subscription_commands = subscriptions_query.add_subparsers(dest="subscription_command", required=True)
     subscribe = subscription_commands.add_parser("add")
@@ -331,7 +338,6 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
                         or not args.yes):
                     return {"status": "REJECTED", "governed": True,
                             "reason": "campaign ID, revision, reason and confirmation required"}
-                from datetime import timedelta
 
                 from domain_sdk.dna_promotion import DnaPromotionController, PromotionPolicy
                 from domain_sdk.dna_repository import PersistentDnaRegistry
@@ -361,6 +367,42 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
                     )
                 return {"status": campaign.stage.value, "campaign_id": campaign.campaign_id,
                         "revision": campaign.revision, "governed": True}
+            if args.view == "build-dataset":
+                if not args.identifier:
+                    return {"status": "REJECTED",
+                            "reason": "dataset ID and --window-days are required"}
+                from apps.quant_agent.dataset_service import build_experience_dataset
+                from apps.quant_agent.evolution_seed import DEFAULT_START as _seed_start
+                from apps.quant_agent.evolution_seed import _active_baseline
+                baseline = await _active_baseline(database)
+                days = max(1, args.window_days)
+                start = datetime.fromisoformat(args.start) if args.start else _seed_start
+                try:
+                    dataset_result = await build_experience_dataset(
+                        database, dataset_id=args.identifier,
+                        window_id=f"seed-{start:%Y%m%d}-{args.window_days}",
+                        baseline_content_digest=baseline["content_digest"],
+                        candidate_content_digests=tuple(args.candidate_digests or ()),
+                        starts_at=start, ends_at=start + timedelta(days=days + 1),
+                    )
+                except ValueError as error:
+                    return {"status": "REJECTED", "governed": True, "reason": str(error)}
+                return {"status": "BUILT", "governed": True} | dataset_result.to_dict()
+            if args.view == "propose":
+                if (not args.identifier or not args.operations or not args.hypothesis):
+                    return {"status": "REJECTED", "governed": True,
+                            "reason": ("proposal ID, --operations, --hypothesis and "
+                                       "--dataset-id/--dataset-version are required")}
+                from apps.quant_agent.candidate_service import propose_candidate
+                try:
+                    proposal_result = await propose_candidate(
+                        database, proposal_id=args.identifier,
+                        operations=json.loads(args.operations), hypothesis=args.hypothesis,
+                        dataset_id=args.dataset_id, dataset_version=args.dataset_version,
+                    )
+                except ValueError as error:
+                    return {"status": "REJECTED", "governed": True, "reason": str(error)}
+                return {"status": "PROPOSED", "governed": True} | proposal_result.to_dict()
             return await surface_query.evolution(args.view, args.limit, args.identifier)
         if args.command == "schedules":
             if args.view == "trigger":
