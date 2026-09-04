@@ -25,6 +25,7 @@ from apps.quant_agent.candidate_service import (
 )
 from apps.quant_agent.dataset_service import build_experience_dataset
 from apps.quant_agent.evolution_seed import DEFAULT_START, seed_baseline, seed_market_days
+from apps.quant_agent.query_surface import CommandSurfaceQuery
 from apps.quant_agent.sandbox import quant_sandbox_executor
 from domain_sdk.dna import DnaDefinition, DnaParent, DnaStatus
 from domain_sdk.dna_candidates import (
@@ -155,6 +156,18 @@ async def test_dataset_and_proposal_close_the_pre_replay_chain(tmp_path: Path) -
         assert replay.candidate.success_rate >= 0
         assert replay.candidate.average_cost_minor >= 0
         assert replay.report_digest.startswith("sha256:")
+
+        # 7. The replay query surface exposes the full report, vectors and cases.
+        surface = CommandSurfaceQuery(database)
+        listing = await surface.evolution("replay", 20, "replay-e2e-1")
+        assert listing["evidence_source"] == "append-only replay run and cases"
+        assert listing["cases"] and len(listing["cases"]) >= 1
+        report = listing["report"]
+        assert report["status"] in {"PASSED", "FAILED"}
+        vectors = listing["vectors"]
+        assert vectors["parent"]["success_rate"] == vectors["candidate"]["success_rate"]
+        assert "cost_increase_ratio" in vectors["deltas"]
+        assert isinstance(listing["reasons"], list)
     finally:
         await database.close()
 

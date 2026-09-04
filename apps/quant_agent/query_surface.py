@@ -288,11 +288,24 @@ class CommandSurfaceQuery:
         params = (limit,) if identifier is None else (identifier, limit)
         rows = await self._rows(f"SELECT * FROM {table} {where} ORDER BY rowid DESC LIMIT ?", params)
         result: dict[str, object] = {view: rows}
-        if view == "replay" and identifier:
-            result["cases"] = await self._rows(
-                "SELECT * FROM dna_replay_case WHERE replay_id=? ORDER BY sample_id LIMIT ?",
-                (identifier, limit),
-            )
+        if view == "replay":
+            if identifier:
+                result["cases"] = await self._rows(
+                    "SELECT * FROM dna_replay_case WHERE replay_id=? ORDER BY sample_id LIMIT ?",
+                    (identifier, limit),
+                )
+                report_row = next(
+                    (row for row in rows if str(row["replay_id"]) == identifier), None,
+                )
+                if report_row is not None:
+                    report = json.loads(str(report_row.pop("report_json")))
+                    result["report"] = report
+                    result["vectors"] = {
+                        "parent": report.get("parent"),
+                        "candidate": report.get("candidate"),
+                        "deltas": report.get("deltas"),
+                    }
+                    result["reasons"] = report.get("reasons", [])
             result["evidence_source"] = "append-only replay run and cases"
         return result
 
