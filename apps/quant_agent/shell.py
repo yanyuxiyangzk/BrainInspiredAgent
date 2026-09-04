@@ -59,13 +59,14 @@ HELP = command_help()
 CTRL_C_SENTINEL = "\x00bia-quit"
 
 
-class PromptHandle:
+class PromptHandle:  # pragma: no cover - real TTY integration
     """One long-lived prompt application for the whole interactive session.
 
     The accept key binding hands the typed text to the main loop via
     :meth:`accept` without exiting the application, so the input frame stays
     rendered while a reply streams into the terminal space below it (see
-    :meth:`terminal`).
+    :meth:`terminal`). Verified through pty black-box tests in
+    ``tests/test_quant_shell.py``-style harnesses rather than unit tests.
     """
 
     def __init__(
@@ -520,7 +521,7 @@ async def interactive(
     stdout.write(BANNER)
     stdout.write(welcome_panel(settings))
     stdout.flush()
-    if handle is not None:
+    if handle is not None:  # pragma: no cover - real TTY integration
         handle.start()
 
         async def thinking_ticker() -> None:

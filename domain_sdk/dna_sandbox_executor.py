@@ -208,6 +208,7 @@ class WorkflowSandboxExecutor:
             deadline=context.virtual_time + timedelta(seconds=policy.deadline_seconds),
             correlation_id=context.replay_id,
             allowed_permissions=policy.permissions,
+            cancellation=cancellation,
         )
         # WorkflowRuntime.execute 假设调用方（MotorExec）已创建 run 行；
         # 子流程路径同样先 create_workflow 再 execute。

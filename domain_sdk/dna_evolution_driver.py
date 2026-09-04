@@ -93,18 +93,8 @@ class RuleEvolutionStrategy:
         summary_node = next(
             (node_id for node_id in skill_ids if "summary" in node_id), skill_ids[0],
         )
-        if weakness == "latency":
-            return (CandidateOperation(
-                CandidateOperationKind.SET_CONSTRAINT, summary_node,
-                field="max_latency_ms", value=5_000,
-            ),)
-        if weakness == "risk_rate":
-            return (CandidateOperation(
-                CandidateOperationKind.SET_CONSTRAINT, skill_ids[-1],
-                field="freshness_seconds", value=30,
-            ),)
-        # Success/evidence/value weaknesses: sharpen the summary title input so
-        # downstream consumers get a more specific artefact.
+        # Success/evidence/value/stability weaknesses: sharpen the summary title
+        # input so downstream consumers get a more specific artefact.
         return (CandidateOperation(
             CandidateOperationKind.SET_INPUT, summary_node,
             field="title",
