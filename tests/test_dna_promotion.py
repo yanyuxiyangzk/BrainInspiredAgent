@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 from datetime import timedelta
-from io import StringIO
 from pathlib import Path
 from uuid import UUID
 
@@ -12,7 +10,6 @@ from test_dna_candidates import START
 from test_dna_selection import setup_population
 
 from active_agent_platform.foundation import FakeClock, FakeUuidGenerator
-from apps.quant_agent.cli import run
 from domain_sdk import (
     DnaPopulationSelector,
     DnaPromotionController,
@@ -230,25 +227,6 @@ async def test_manual_gate_evaluation_revision_and_rollback(tmp_path: Path) -> N
     ))
     assert campaign.stage is PromotionStage.STOPPED
     await database.close()
-
-
-@pytest.mark.asyncio
-async def test_cli_promotion_gate_and_kill_use_campaign_cas(tmp_path: Path) -> None:
-    database, _, _, _, campaign, _, _ = await setup_campaign(tmp_path)
-    path = database._path
-    await database.close()
-    out, err = StringIO(), StringIO()
-    code = await run((
-        "--database", path, "evolution", "promote", campaign.campaign_id,
-        "--revision", "0", "--reason", "operator gate", "--yes",
-    ), out, err)
-    assert code == 0 and json.loads(out.getvalue())["status"] == "SHADOW"
-    out, err = StringIO(), StringIO()
-    code = await run((
-        "--database", path, "evolution", "kill", campaign.campaign_id,
-        "--revision", "0", "--reason", "operator stop", "--yes",
-    ), out, err)
-    assert code == 0 and json.loads(out.getvalue())["status"] == "STOPPED"
 
 
 def test_promotion_contracts() -> None:

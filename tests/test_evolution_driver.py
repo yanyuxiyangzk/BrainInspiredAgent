@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
+from sample_domain import SAMPLE_WORKFLOW
 
-from apps.quant_agent import MARKET_SUMMARY_WORKFLOW
 from domain_sdk.dna import DnaDefinition, DnaStatus
 from domain_sdk.dna_candidates import CandidateOperationKind
 from domain_sdk.dna_evolution_driver import (
@@ -28,7 +28,7 @@ SNAPSHOT = {
 
 def _baseline() -> DnaDefinition:
     return DnaDefinition.from_workflow(
-        MARKET_SUMMARY_WORKFLOW, dna_id="workflow.market_summary", version="1.0.0",
+        SAMPLE_WORKFLOW, dna_id="workflow.sample_summary", version="1.0.0",
         status=DnaStatus.ACTIVE,
     )
 

@@ -22,7 +22,7 @@ DOMAIN_TERM_EXEMPT_FILES = {"active_agent_platform/storage/migrations.py"}
 
 class PackageBoundaryTests(unittest.TestCase):
     def test_four_layer_packages_are_importable(self) -> None:
-        for package in ("brain_kernel", "active_agent_platform", "domain_sdk", "apps.quant_agent"):
+        for package in ("brain_kernel", "active_agent_platform", "domain_sdk", "apps.brainagent_cli"):
             self.assertIsNotNone(import_module(package))
 
     def test_imports_only_point_toward_lower_layers(self) -> None:

@@ -6,12 +6,12 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
+from sample_domain import SAMPLE_WORKFLOW
 
 from active_agent_platform import RepairError, RepairOutcome, RestRepair
 from active_agent_platform.foundation import FakeClock, FakeUuidGenerator
 from active_agent_platform.storage import SQLiteDatabase
 from active_agent_platform.workflow import WorkflowValidator
-from apps.quant_agent import DAILY_REVIEW_WORKFLOW
 
 NOW = datetime(2026, 8, 18, 8, 0, tzinfo=UTC)
 DAY = date(2026, 8, 18)
@@ -133,10 +133,10 @@ async def test_completion_only_accepts_evidenced_candidate_experience(tmp_path: 
     assert inactive.value.code == "REPAIR_NOT_ACTIVE"
 
 
-def test_daily_review_workflow_is_valid_application_definition() -> None:
-    validation = WorkflowValidator().validate(DAILY_REVIEW_WORKFLOW)
-    assert validation.workflow_id == "daily_review"
-    assert validation.topological_order == ("summarize",)
+def test_sample_workflow_is_valid_application_definition() -> None:
+    validation = WorkflowValidator().validate(SAMPLE_WORKFLOW)
+    assert validation.workflow_id == "sample_summary"
+    assert validation.topological_order == ("fetch_records", "build_summary", "notify")
 
 
 def test_invalid_repair_configuration_is_rejected(tmp_path: Path) -> None:

@@ -6,6 +6,8 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
+from sample_domain import SUMMARY_CAPABILITY
+from sample_domain import install_sample_skills as install_fake_skills
 
 from active_agent_platform.artifacts import LocalArtifactStore
 from active_agent_platform.foundation.identity import FakeUuidGenerator
@@ -35,7 +37,6 @@ from active_agent_platform.workflow_runtime import (
     WorkflowExecutionRequest,
     WorkflowRuntime,
 )
-from apps.quant_agent import SUMMARY_CAPABILITY, install_fake_skills
 
 NOW = datetime(2026, 8, 18, 1, 0, tzinfo=UTC)
 

@@ -132,7 +132,7 @@ class SandboxPolicy:
     max_virtual_seconds: float = 600.0
     deadline_seconds: float = 300.0
     permissions: frozenset[str] = frozenset()
-    policy_version: str = "market-policy/1"
+    policy_version: str = "sandbox-policy/1"
 
     def __post_init__(self) -> None:
         if self.quantum_seconds <= 0 or self.max_virtual_seconds <= 0:

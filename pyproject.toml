@@ -14,7 +14,6 @@ dependencies = [
 ]
 
 [project.scripts]
-bia = "apps.quant_agent.cli:main"
 brainagent = "apps.brainagent_cli:main"
 
 [dependency-groups]

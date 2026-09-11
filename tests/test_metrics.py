@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -9,7 +8,6 @@ import pytest
 from active_agent_platform.foundation import FakeClock
 from active_agent_platform.metrics import PlatformMetrics, prometheus
 from active_agent_platform.storage import SQLiteDatabase
-from apps.quant_agent.cli import EXIT_OK, run
 
 NOW = datetime(2026, 8, 18, 8, 0, tzinfo=UTC)
 
@@ -59,14 +57,3 @@ async def test_metrics_snapshot_covers_lag_queues_execution_cost_and_side_effect
     with pytest.raises(ValueError):
         metrics.record_model(tokens=-1, cost_minor=0)
     await database.close()
-
-
-@pytest.mark.asyncio
-async def test_metrics_cli_supports_json_and_prometheus(tmp_path: Path) -> None:
-    path = tmp_path / "cli.db"
-    stdout, stderr = StringIO(), StringIO()
-    assert await run(("--database", str(path), "metrics"), stdout, stderr) == EXIT_OK
-    assert '"loop_lag_seconds":0.0' in stdout.getvalue()
-    stdout, stderr = StringIO(), StringIO()
-    assert await run(("--database", str(path), "metrics", "--prometheus"), stdout, stderr) == EXIT_OK
-    assert stdout.getvalue().startswith("bia_loop_lag_seconds 0\n")

@@ -8,10 +8,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from sample_domain import SAMPLE_WORKFLOW, sample_sandbox_executor
 
 from active_agent_platform.storage import SQLiteDatabase
-from apps.quant_agent import MARKET_SUMMARY_WORKFLOW
-from apps.quant_agent.sandbox import quant_sandbox_executor
 from domain_sdk.dna import DnaDefinition, DnaStatus
 from domain_sdk.dna_replay import FaultScenario, ReplayContext
 from domain_sdk.dna_sandbox_executor import SandboxPolicy
@@ -22,14 +21,14 @@ NOW = datetime(2026, 1, 5, 1, 25, tzinfo=UTC)
 
 def _sample(sample_id: str, trade_date: str) -> ExperienceSample:
     document = {"parameters": {
-        "symbols": ["INDEX.TEST"], "trade_date": trade_date, "title": "Sandbox",
+        "source": "INDEX.TEST", "as_of": trade_date, "title": "Sandbox",
     }}
     digest = "sha256:" + hashlib.sha256(
         json.dumps(document, sort_keys=True).encode(),
     ).hexdigest()
     return ExperienceSample(
         sample_id=sample_id, ordinal=1, split=DatasetSplit.VALIDATION,
-        cohort=DatasetCohort.BASELINE, dna_id="workflow.market_summary",
+        cohort=DatasetCohort.BASELINE, dna_id="workflow.sample_summary",
         dna_version="1.0.0", content_digest="sha256:" + "0" * 64,
         evaluation_id=f"eval-{sample_id}", observation_id=f"obs-{sample_id}",
         observed_at=NOW, sample_digest=digest, document=document,
@@ -46,10 +45,10 @@ async def test_sandbox_executes_market_summary_successfully_and_deterministicall
 ) -> None:
     del tmp_path
     dna = DnaDefinition.from_workflow(
-        MARKET_SUMMARY_WORKFLOW, dna_id="workflow.market_summary", version="1.0.0",
+        SAMPLE_WORKFLOW, dna_id="workflow.sample_summary", version="1.0.0",
         status=DnaStatus.ACTIVE,
     )
-    executor = quant_sandbox_executor()
+    executor = sample_sandbox_executor()
     sample = _sample("sample-ok", "2026-01-05")
     context = _context("replay-ok", sample, FaultScenario.NONE)
 
@@ -69,9 +68,9 @@ async def test_sandbox_executes_market_summary_successfully_and_deterministicall
 async def test_sandbox_skill_failure_fault_fails_the_run(tmp_path: Path) -> None:
     del tmp_path
     dna = DnaDefinition.from_workflow(
-        MARKET_SUMMARY_WORKFLOW, dna_id="workflow.market_summary", version="1.0.0",
+        SAMPLE_WORKFLOW, dna_id="workflow.sample_summary", version="1.0.0",
     )
-    executor = quant_sandbox_executor()
+    executor = sample_sandbox_executor()
     sample = _sample("sample-fail", "2026-01-06")
     context = _context("replay-fail", sample, FaultScenario.SKILL_FAILURE)
 
@@ -88,9 +87,9 @@ async def test_sandbox_skill_failure_fault_fails_the_run(tmp_path: Path) -> None
 async def test_sandbox_corrupt_output_is_measured_deterministically(tmp_path: Path) -> None:
     del tmp_path
     dna = DnaDefinition.from_workflow(
-        MARKET_SUMMARY_WORKFLOW, dna_id="workflow.market_summary", version="1.0.0",
+        SAMPLE_WORKFLOW, dna_id="workflow.sample_summary", version="1.0.0",
     )
-    executor = quant_sandbox_executor()
+    executor = sample_sandbox_executor()
     sample = _sample("sample-corrupt", "2026-01-07")
     context = _context("replay-corrupt", sample, FaultScenario.CORRUPT_OUTPUT)
 
@@ -112,9 +111,9 @@ async def test_sandbox_never_touches_the_caller_database(tmp_path: Path) -> None
     await database.initialize()
     try:
         dna = DnaDefinition.from_workflow(
-            MARKET_SUMMARY_WORKFLOW, dna_id="workflow.market_summary", version="1.0.0",
+            SAMPLE_WORKFLOW, dna_id="workflow.sample_summary", version="1.0.0",
         )
-        executor = quant_sandbox_executor()
+        executor = sample_sandbox_executor()
         sample = _sample("sample-iso", "2026-01-08")
         measurement = await executor.execute(dna, sample, _context("r", sample, FaultScenario.NONE))
         assert measurement.successful is True

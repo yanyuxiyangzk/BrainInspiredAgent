@@ -1,5 +1,9 @@
-"""Deterministic, dependency-free quant Skills for tests, demos and local E2E runs."""
+"""中性样例领域：确定性、无依赖的测试技能栈与样例工作流。
 
+为通用分支的测试提供可装配的假技能（records.fetch → content.summarize →
+notification.local.send），替代量化市场的假技能栈。全部确定性：不依赖
+LLM、不触碰真实数据。
+"""
 from __future__ import annotations
 
 import hashlib
@@ -10,6 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Final
 
+from active_agent_platform.foundation import FakeClock
 from active_agent_platform.skills import (
     CapabilityContract,
     CapabilityRegistry,
@@ -24,10 +29,17 @@ from active_agent_platform.skills import (
     SkillResult,
 )
 from active_agent_platform.storage import SQLiteDatabase
+from domain_sdk.dna_sandbox_executor import (
+    SandboxPolicy,
+    SandboxSkillLayer,
+    WorkflowSandboxExecutor,
+)
 
-MARKET_CAPABILITY: Final = "market.snapshot.read"
-SUMMARY_CAPABILITY: Final = "content.summary.generate"
+RECORDS_CAPABILITY: Final = "records.fetch"
+SUMMARY_CAPABILITY: Final = "content.summarize"
 NOTIFICATION_CAPABILITY: Final = "notification.local.send"
+
+BASELINE_DNA_ID: Final = "workflow.sample_summary"
 
 
 def _object_schema(properties: Mapping[str, object], required: Sequence[str]) -> dict[str, object]:
@@ -39,19 +51,19 @@ def _object_schema(properties: Mapping[str, object], required: Sequence[str]) ->
     }
 
 
-MARKET_INPUT_SCHEMA = _object_schema(
+RECORDS_INPUT_SCHEMA = _object_schema(
     {
-        "symbols": {"type": "array", "items": {"type": "string"}},
-        "trade_date": {"type": "string"},
+        "source": {"type": "string"},
+        "as_of": {"type": "string"},
     },
-    ("symbols",),
+    ("source",),
 )
-MARKET_OUTPUT_SCHEMA = _object_schema(
+RECORDS_OUTPUT_SCHEMA = _object_schema(
     {
-        "trade_date": {"type": "string"},
-        "quotes": {"type": "array"},
+        "as_of": {"type": "string"},
+        "records": {"type": "array"},
     },
-    ("trade_date", "quotes"),
+    ("as_of", "records"),
 )
 SUMMARY_INPUT_SCHEMA = _object_schema(
     {
@@ -79,15 +91,15 @@ NOTIFICATION_OUTPUT_SCHEMA = _object_schema(
 )
 
 
-def fake_capability_contracts() -> tuple[CapabilityContract, ...]:
+def sample_capability_contracts() -> tuple[CapabilityContract, ...]:
     return (
         CapabilityContract(
-            MARKET_CAPABILITY,
+            RECORDS_CAPABILITY,
             "1.0",
-            MARKET_INPUT_SCHEMA,
-            MARKET_OUTPUT_SCHEMA,
+            RECORDS_INPUT_SCHEMA,
+            RECORDS_OUTPUT_SCHEMA,
             SideEffect.PURE,
-            frozenset({"market.read"}),
+            frozenset({"records.read"}),
         ),
         CapabilityContract(
             SUMMARY_CAPABILITY,
@@ -108,12 +120,12 @@ def fake_capability_contracts() -> tuple[CapabilityContract, ...]:
 
 
 def _skill_digest(skill_id: str, version: str) -> str:
-    return "sha256:" + hashlib.sha256(f"bia-fake-skill:{skill_id}@{version}".encode()).hexdigest()
+    return "sha256:" + hashlib.sha256(f"bia-sample-skill:{skill_id}@{version}".encode()).hexdigest()
 
 
-def fake_skill_manifests() -> tuple[dict[str, object], ...]:
+def sample_skill_manifests() -> tuple[dict[str, object], ...]:
     specifications: tuple[tuple[str, str, str, list[str], bool], ...] = (
-        ("fake-market-read", MARKET_CAPABILITY, "PURE", ["market.read"], False),
+        ("fake-records-read", RECORDS_CAPABILITY, "PURE", ["records.read"], False),
         ("fake-summary", SUMMARY_CAPABILITY, "PURE", [], False),
         (
             "local-notification",
@@ -136,7 +148,7 @@ def fake_skill_manifests() -> tuple[dict[str, object], ...]:
                 "side_effect": side_effect,
                 "required_permissions": permissions,
                 "runtime": "python",
-                "entrypoint": f"apps.quant_agent.fake_skills:{skill_id}",
+                "entrypoint": f"sample_domain:{skill_id}",
                 "timeout_seconds": 5,
                 "concurrency_limit": 8,
                 "supports_cancel": True,
@@ -151,7 +163,7 @@ def fake_skill_manifests() -> tuple[dict[str, object], ...]:
     return tuple(result)
 
 
-class _FakeAdapter:
+class _SampleAdapter:
     def __init__(self, *, clock: ClockPort) -> None:
         self._clock = clock
         self._cancelled: set[str] = set()
@@ -181,38 +193,32 @@ class _FakeAdapter:
         return self._clock.now().astimezone(UTC)
 
 
-class FakeMarketRead(_FakeAdapter):
-    """Return stable synthetic quotes derived only from symbol and trade date."""
+class FakeRecordsFetch(_SampleAdapter):
+    """Return stable synthetic records derived only from source and as-of date."""
 
     async def invoke(self, invocation: SkillInvocation, context: SkillContext) -> SkillResult:
         early = self._before_invoke(invocation, context)
         if early is not None:
             return early
-        symbols = invocation.input.get("symbols")
-        trade_date = invocation.input.get("trade_date", self._now().date().isoformat())
-        if (
-            not isinstance(symbols, list)
-            or not symbols
-            or any(not isinstance(symbol, str) or not symbol for symbol in symbols)
-            or not isinstance(trade_date, str)
-        ):
+        source = invocation.input.get("source")
+        as_of = invocation.input.get("as_of", self._now().date().isoformat())
+        if not isinstance(source, str) or not source or not isinstance(as_of, str):
             return SkillResult("FAILED", {"code": "SKILL_INPUT_INVALID"})
-        quotes: list[dict[str, object]] = []
-        for symbol in symbols:
-            seed = int(hashlib.sha256(f"{trade_date}:{symbol}".encode()).hexdigest()[:8], 16)
-            price = round(5 + seed % 50_000 / 1000, 3)
-            quotes.append(
+        records: list[dict[str, object]] = []
+        for index in range(3):
+            seed = int(hashlib.sha256(f"{as_of}:{source}:{index}".encode()).hexdigest()[:8], 16)
+            records.append(
                 {
-                    "symbol": symbol,
-                    "price": price,
-                    "volume": 1_000 + seed % 999_000,
-                    "as_of": f"{trade_date}T07:00:00Z",
+                    "record_id": f"{source}-{index}",
+                    "score": round(seed % 10_000 / 100, 2),
+                    "weight": 1 + seed % 500,
+                    "recorded_at": f"{as_of}T07:00:00Z",
                 }
             )
-        return SkillResult("SUCCEEDED", {"trade_date": trade_date, "quotes": quotes})
+        return SkillResult("SUCCEEDED", {"as_of": as_of, "records": records})
 
 
-class FakeSummary(_FakeAdapter):
+class FakeSummary(_SampleAdapter):
     """Generate a deterministic local summary without an LLM dependency."""
 
     async def invoke(self, invocation: SkillInvocation, context: SkillContext) -> SkillResult:
@@ -247,7 +253,7 @@ class NotificationRecord:
     delivered_at: datetime
 
 
-class LocalNotification(_FakeAdapter):
+class LocalNotification(_SampleAdapter):
     """Local idempotent sink with optional restart-safe SQLite persistence."""
 
     def __init__(self, *, clock: ClockPort, database: SQLiteDatabase | None = None) -> None:
@@ -361,36 +367,36 @@ class LocalNotification(_FakeAdapter):
 
 
 @dataclass(frozen=True, slots=True)
-class FakeSkillBundle:
-    market: FakeMarketRead
+class SampleSkillBundle:
+    records: FakeRecordsFetch
     summary: FakeSummary
     notification: LocalNotification
 
     @property
     def adapters(self) -> Mapping[tuple[str, str], SkillAdapter]:
         return {
-            ("fake-market-read", "1.0.0"): self.market,
+            ("fake-records-read", "1.0.0"): self.records,
             ("fake-summary", "1.0.0"): self.summary,
             ("local-notification", "1.0.0"): self.notification,
         }
 
 
-def install_fake_skills(
+def install_sample_skills(
     capabilities: CapabilityRegistry,
     skills: SkillRegistry,
     *,
     clock: ClockPort,
     database: SQLiteDatabase | None = None,
-) -> FakeSkillBundle:
+) -> SampleSkillBundle:
     """Register contracts, install/verify/health-enable Skills and return adapters."""
-    for contract in fake_capability_contracts():
+    for contract in sample_capability_contracts():
         capabilities.register(contract)
-    bundle = FakeSkillBundle(
-        FakeMarketRead(clock=clock),
+    bundle = SampleSkillBundle(
+        FakeRecordsFetch(clock=clock),
         FakeSummary(clock=clock),
         LocalNotification(clock=clock, database=database),
     )
-    for manifest in fake_skill_manifests():
+    for manifest in sample_skill_manifests():
         skill_id, version, digest = (
             str(manifest["skill_id"]),
             str(manifest["version"]),
@@ -421,4 +427,95 @@ def _result_json(result: SkillResult) -> str:
         },
         sort_keys=True,
         separators=(",", ":"),
+    )
+
+
+SAMPLE_WORKFLOW: Final[dict[str, object]] = {
+    "spec_version": "1.0",
+    "workflow_id": "sample_summary",
+    "version": "1.0.0",
+    "name": "Sample summary",
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "source": {"type": "string"},
+            "as_of": {"type": "string"},
+            "title": {"type": "string"},
+        },
+        "required": ["source", "as_of", "title"],
+    },
+    "policy": {
+        "timeout_seconds": 10,
+        "max_parallelism": 1,
+        "required_capabilities": [
+            RECORDS_CAPABILITY,
+            SUMMARY_CAPABILITY,
+            NOTIFICATION_CAPABILITY,
+        ],
+    },
+    "nodes": [
+        {
+            "node_id": "fetch_records",
+            "type": "skill",
+            "depends_on": [],
+            "capability": RECORDS_CAPABILITY,
+            "capability_version": "1.0",
+            "input": {
+                "source": "$.params.source",
+                "as_of": "$.params.as_of",
+            },
+            "constraints": {"side_effect": "PURE"},
+        },
+        {
+            "node_id": "build_summary",
+            "type": "skill",
+            "depends_on": ["fetch_records"],
+            "capability": SUMMARY_CAPABILITY,
+            "capability_version": "1.0",
+            "input": {
+                "title": "$.params.title",
+                "items": "$.nodes.fetch_records.output.records",
+                "max_items": 10,
+            },
+            "constraints": {"side_effect": "PURE"},
+        },
+        {
+            "node_id": "notify",
+            "type": "skill",
+            "depends_on": ["build_summary"],
+            "capability": NOTIFICATION_CAPABILITY,
+            "capability_version": "1.0",
+            "input": {
+                "title": "$.params.title",
+                "message": "$.nodes.build_summary.output.summary",
+                "level": "INFO",
+            },
+            "constraints": {"side_effect": "IDEMPOTENT"},
+        },
+    ],
+    "output_mapping": {
+        "summary": "$.nodes.build_summary.output.summary",
+        "item_count": "$.nodes.build_summary.output.item_count",
+        "notification_id": "$.nodes.notify.output.notification_id",
+        "delivered": "$.nodes.notify.output.delivered",
+    },
+}
+
+SANDBOX_PERMISSIONS: Final = frozenset({"records.read", "notification.local.write"})
+
+
+def sample_fake_skill_layer(clock: FakeClock) -> SandboxSkillLayer:
+    """Build an isolated fake skill stack for one sandbox execution."""
+    capabilities = CapabilityRegistry()
+    skills = SkillRegistry(capabilities)
+    bundle = install_sample_skills(capabilities, skills, clock=clock)
+    return SandboxSkillLayer(capabilities, skills, bundle.adapters)
+
+
+def sample_sandbox_executor() -> WorkflowSandboxExecutor:
+    """Sandbox executor wired with the neutral sample skill stack."""
+    return WorkflowSandboxExecutor(
+        sample_fake_skill_layer,
+        policy=SandboxPolicy(permissions=SANDBOX_PERMISSIONS),
     )

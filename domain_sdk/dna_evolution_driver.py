@@ -75,6 +75,9 @@ def detect_weakness(snapshot: Mapping[str, object]) -> str | None:
 class RuleEvolutionStrategy:
     """Deterministic weakness→operations mapping; the always-available fallback."""
 
+    def __init__(self, artifact_label: str = "artifact") -> None:
+        self._artifact_label = artifact_label
+
     def hypothesis(self, weakness: str, snapshot: Mapping[str, object]) -> str:
         observed = float(str(snapshot[weakness]))
         return (
@@ -98,7 +101,7 @@ class RuleEvolutionStrategy:
         return (CandidateOperation(
             CandidateOperationKind.SET_INPUT, summary_node,
             field="title",
-            value=f"[{weakness}] Market summary",
+            value=f"[{weakness}] {self._artifact_label}",
         ),)
 
 
@@ -112,9 +115,11 @@ class LlmEvolutionStrategy:
 
     def __init__(
         self, model: StructuredModel, fallback: RuleEvolutionStrategy | None = None,
+        *, artifact_label: str = "artifact",
     ) -> None:
         self._model = model
-        self._fallback = fallback or RuleEvolutionStrategy()
+        self._fallback = fallback or RuleEvolutionStrategy(artifact_label)
+        self._artifact_label = artifact_label
 
     async def plan(
         self, weakness: str, snapshot: Mapping[str, object], baseline: DnaDefinition,
@@ -154,7 +159,7 @@ class LlmEvolutionStrategy:
                 else CandidateOperationKind.SET_INPUT)
         operations = (CandidateOperation(
             kind, node_id, field=field_name,
-            value=value if value is not None else f"[{weakness}] Market summary",
+            value=value if value is not None else f"[{weakness}] {self._artifact_label}",
         ),)
         if not hypothesis:
             hypothesis = self._fallback.hypothesis(weakness, snapshot)
@@ -181,10 +186,12 @@ class EvolutionDriver:
     def __init__(
         self, database: SQLiteDatabase | None = None, *,
         model: StructuredModel | None = None,
+        artifact_label: str = "artifact",
     ) -> None:
         self._database = database
         self._model = model
-        self._rule_strategy = RuleEvolutionStrategy()
+        self._artifact_label = artifact_label
+        self._rule_strategy = RuleEvolutionStrategy(artifact_label)
 
     async def drive(
         self, baseline: DnaDefinition, *, snapshot: Mapping[str, object],
@@ -197,7 +204,7 @@ class EvolutionDriver:
             raise EvolutionDriverError("no fitness weakness above target; nothing to evolve")
         if self._model is not None:
             hypothesis, operations, source = await LlmEvolutionStrategy(
-                self._model,
+                self._model, artifact_label=self._artifact_label,
             ).plan(weakness, snapshot, baseline)
         else:
             hypothesis = self._rule_strategy.hypothesis(weakness, snapshot)
