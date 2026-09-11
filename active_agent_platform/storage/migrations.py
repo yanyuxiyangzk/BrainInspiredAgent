@@ -1337,6 +1337,15 @@ _DNA_EVOLUTION_RUNTIME = Migration(
     ),
 )
 
+_FACTOR_RECOVERY_DIGEST = Migration(
+    "028_factor_recovery_digest",
+    (
+        # Checkpoint digest over committed discovery facts; NULL marks legacy rows
+        # that are healed from the authoritative fact tables on first recovery.
+        "ALTER TABLE discovery_loop_checkpoint ADD COLUMN facts_digest TEXT",
+    ),
+)
+
 
 DEFAULT_MIGRATIONS = (
     _INITIAL_SCHEMA,
@@ -1366,4 +1375,5 @@ DEFAULT_MIGRATIONS = (
     _DISCOVERY_LOOP,
     _FACTOR_DISCOVERY_STATE,
     _DNA_EVOLUTION_RUNTIME,
+    _FACTOR_RECOVERY_DIGEST,
 )
