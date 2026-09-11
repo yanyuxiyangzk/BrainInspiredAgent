@@ -1,8 +1,8 @@
 # MVP 开发实施计划
 
-状态：MVP 0.1、0.1.1、0.2 与 DNA MVP 全部完成；交互终端与 LLM 对话（R01～R08）已完成；v1.5 因子发现扩展（L 系列）未开始  
+状态：MVP 0.1、0.1.1、0.2 与 DNA MVP 全部完成；交互终端与 LLM 对话（R01～R08）已完成；v1.5 因子发现扩展 L-001～L-010 全部完成并通过验收回放；演化自动运行装配 W-01/W-02 完成（`/evolution auto-plan` 与 `bia factor-loop run/status` 入口可用）  
 计划版本：MVP 0.3 / Plan 1.1  
-最后核验：2026-09-03
+最后核验：2026-09-06
 
 本文是 MVP 唯一派工与进度基线。架构文档描述设计，本文只记录做什么、谁负责、依赖什么、如何验收以及是否真实完成。
 
@@ -17,7 +17,7 @@
 | `✅ 已开发已测试` | 实现与约定自动化测试均通过 |
 | `⛔ 阻塞` | 存在明确外部阻塞，必须记录原因和解除条件 |
 
-仓库现状：产品、架构、场景、P0 和技术契约文档已完成；在线文档站已开发并通过检查；15 份 JSON Schema 已开发并通过 Draft 2020-12 元规范及引用检查。工程基线（A01～A07）、可靠事件与时间内核（B01～B06、E01、I01）、Workflow 与 Skill 执行内核（C01～C08、D01～D07）、规划授权与运动执行（F01～F06）、主动认知与记忆（E02～E06、G01～G06）、观测验收与发布（I02～I06、T01～T06）、技术底座（P01～P08）、可运行产品闭环（Q01～Q08）、命令面（U01～U17）、DNA 演化（H01.1～H12、T07.1/T07.2）以及交互终端与 LLM 对话（R01～R08）全部完成并通过测试。v1.5 因子发现扩展（L 系列）为后续工作。
+仓库现状：产品、架构、场景、P0 和技术契约文档已完成；在线文档站已开发并通过检查；15 份 JSON Schema 已开发并通过 Draft 2020-12 元规范及引用检查。工程基线（A01～A07）、可靠事件与时间内核（B01～B06、E01、I01）、Workflow 与 Skill 执行内核（C01～C08、D01～D07）、规划授权与运动执行（F01～F06）、主动认知与记忆（E02～E06、G01～G06）、观测验收与发布（I02～I06、T01～T06）、技术底座（P01～P08）、可运行产品闭环（Q01～Q08）、命令面（U01～U17）、DNA 演化（H01.1～H12、T07.1/T07.2）以及交互终端与 LLM 对话（R01～R08）全部完成并通过测试。v1.5 因子发现扩展中 L-001～L-010 全部完成并通过测试、WSL 打包冒烟与 581 轮验收回放（含故障注入），v1.5 扩展验收关闭。
 
 状态只能依据代码、测试报告或可检查产物更新。部分 Schema 已有不代表对应运行时任务完成。
 
@@ -77,8 +77,8 @@ M0 契约冻结
 
 | ID | 状态 | 负责人 | 依赖 | 估算 | 交付物/完成标准 | 验收 |
 |---|---|---|---|---:|---|---|
-| M0-01 | `📝 文档完成` | TL | - | 0 | 系统架构、事件、Workflow、授权、事务、Skill 协议冻结候选 | 阶段 0 报告 |
-| M0-02 | `🛠 已开发` | TL/QA | M0-01 | 1 | 15 份 Schema；增加正例、反例和跨字段语义测试后完成 | AC-005-01、006-01、008-01 |
+| M0-01 | `✅ 已开发已测试` | TL | - | 0 | 系统架构、事件、Workflow、授权、事务、Skill 协议冻结候选 | 阶段 0 已 `Accepted / Frozen`（[冻结就绪报告](stage-0-freeze-readiness.md)） |
+| M0-02 | `✅ 已开发已测试` | TL/QA | M0-01 | 1 | 15 份 Schema；增加正例、反例和跨字段语义测试后完成 | 由 T01 验收闭合：15 份 Schema 全部编译、跨文件引用/正例/版本与必填反例通过（`tests/test_t01_schema_contracts.py`） |
 | A01 | `✅ 已开发已测试` | BE/OPS | M0-01 | 1.5 | `uv` 项目、锁文件、四层包布局、CI 和 lint/type/test/build 命令 | 本地同构 CI 全绿、AST 依赖方向及领域泄漏检查通过 |
 | A02 | `✅ 已开发已测试` | BE | A01 | 1.5 | 不可变 Settings；UTC/单调/异步 Clock 与可推进 FakeClock；单调 UUIDv7 与 Fake；结构化 Logger；显式依赖容器 | 正常/异常/边界/Fake 注入测试及全套质量检查通过 |
 | A03 | `✅ 已开发已测试` | BE/TL | A02 | 3 | 单次运行 LoopEngine、TaskGroup 故障隔离、顺序启动/反序关闭、虚拟时钟退避、60 秒崩溃窗口、关键服务 SAFE、限时排空/checkpoint/取消 | AC-001-01～04；并发竞争与故障注入测试通过 |
@@ -315,14 +315,21 @@ bia 交互终端的直接对话能力：复用平台治理 LLM 栈（Adapter + G
 | ID | 状态 | 负责人 | 依赖 | 估算 | 交付物 | 验收 |
 |---|---|---|---|---:|---|---|
 | L-001 | `✅ 已开发已测试` | BE | MVP 发布 | 3 | FactorDiscoveryLoop Profile、5 分钟触发契约、有限迭代、终止/暂停/恢复状态机和持久 checkpoint | checkpoint/恢复、失败阈值和边界测试通过 |
-| L-002 | `⬜ 未开始` | BE | L-001,C08,A05 | 3 | 原子 checkpoint、候选哈希、因子库 digest、恢复一致性 | 中断续跑测试 |
-| L-003 | `⬜ 未开始` | AI/BE | D03,C06 | 4 | 五类生成策略、配额、父本池、随机种子可复现 | 生成分布测试 |
-| L-004 | `⬜ 未开始` | AI | L-003 | 2 | 动量追踪、自适应步长和探索/利用预算调整 | 多轮回放测试 |
-| L-005 | `⬜ 未开始` | AI/BE | L-003,D01 | 3 | 规则审查、AST/量纲/复杂度/边界校验 | 非法候选零回测 |
-| L-006 | `⬜ 未开始` | AI | L-005,D03 | 3 | 生成 Sub-agent 与审查 Sub-agent 独立 SkillBinding | 隔离与 Schema 测试 |
-| L-007 | `⬜ 未开始` | AI/BE | L-005 | 4 | 硬编码回测、多维过滤、数据版本和样本外边界 | 防泄漏/回测 golden |
-| L-008 | `⬜ 未开始` | AI/BE | L-007 | 2 | FSA 子树统计、禁止列表和解除条件 | 多样性测试 |
-| L-009 | `⬜ 未开始` | BE/OPS | L-002,L-007 | 2 | iteration/failure/checkpoint/factor Hooks 与摘要 | Hook 幂等测试 |
-| L-010 | `⬜ 未开始` | QA | L-001～L-009 | 4 | 581 轮模拟回放、故障注入、成本/覆盖/多样性报告 | v1.5 扩展验收 |
+| L-002 | `✅ 已开发已测试` | BE | L-001,C08,A05 | 3 | 原子 checkpoint（SQLite 事实先行 + 临时文件/fsync/原子 rename 指针）、候选哈希与 `filter_untested` 断点续跑、可重算因子库 digest、恢复一致性（facts 与 checkpoint 交叉校验，不一致进 `REQUIRES_REVIEW` 并保留证据，`reconcile` 显式恢复）；迁移 028 新增 `facts_digest` | 中断续跑测试通过（指针滞后自愈、指针伪造/损坏进审查、事实篡改检出）；factor_loop 100% 覆盖；703 项全量测试、95.15% 覆盖率；`uv build` 成功且 wheel 在全新 venv 安装后冒烟通过（`scripts/wheel_install_smoke.py`） |
+| L-003 | `✅ 已开发已测试` | AI/BE | L-001,C06 | 4 | `domain_sdk/factor_generation.py`：五类生成策略（mutate/crossover/parameter_perturb/random_explore/llm_mechanism）、确定性最大余数配额分配（默认 25/25/15/15/20，可显式关闭单策略）、容量化 FIFO 父本池（内容寻址去重）、随机种子可复现工厂、llm_mechanism 经注入 Proposer 征询且失败/短量回退随机探索、冷启动父本依赖策略回退随机 | 生成分布测试通过（配额精确命中、同种子重放逐项一致、异种子发散、冷启动回退与提案失败回退）；`uv build` + 全新 venv 安装后 `scripts/generation_smoke.py` 冒烟通过 |
+| L-004 | `✅ 已开发已测试` | AI | L-003 | 2 | `domain_sdk/factor_adaptation.py`：`ExplorationPolicy` Profile Policy 上下限（五策略比率界、探索份额窗口、步长界）、`FactorSearchGovernor`（入库率 EMA 动量、停滞计数、探索/利用份额有界调整、机制覆盖组内倾斜、water-filling 有界配额分配、快照恢复校验）、`AdaptiveFactorSearch`（按轮派生种子、记录实际配额/步长/重复数、`run_round` 可注入历史已测试哈希补全区域耗尽信号、快照恢复拒绝静默丢提案器）；`factor_generation` 增加 `rebind_quota`/`set_window_step` 且 L-003 随机流契约不变 | 37 项适配测试通过：多轮回放与快照断点续跑逐轮一致、极端反馈下配额恒在 Policy 界内、动量/步长/份额手算断言、历史已测试哈希计入重复率；756 项全量测试、95.23% 覆盖率；`uv build` + 全新 venv 安装后 `scripts/adaptation_smoke.py` 冒烟通过。搜索状态持久化接线（checkpoint 列/指针 payload）并入 L-009；失败模式细分依赖 L-005/L-007 输出 |
+| L-005 | `✅ 已开发已测试` | AI/BE | L-003,D01 | 3 | `domain_sdk/factor_review.py`：确定性硬门槛 `CandidateReviewer`——严格 AST（任意输入可判畸形）、词表（字段/算子/窗口）、窗口边界独立校验、幂等签名驱动的冗余恒等式拒绝、量纲签名沿链传播校验、深度/复杂度上限、known_hashes 与批内去重、`ReviewReport` 拒绝摘要；`OperatorSignature`/`FactorDimensionTable`/`FactorReviewPolicy` 配置契约 | 23 项审查测试通过："非法候选零回测"经单测、生成-审查-回测三轮管线与冒烟三层验证；779 项全量测试、95.23% 覆盖率；`uv build` + 全新 venv 安装后 `scripts/review_smoke.py` 冒烟通过。LLM 审查与生成/审查独立 SkillBinding 归 L-006；恒等式仅拒绝不化简（保守边界）；已知妥协：同算子+同窗口嵌套一律判冗余（ts_mean/ts_delta 同窗嵌套并非严格恒等式，属保守多样性门槛），L-008 FSA 时改为 per-operator 数据驱动开关；复杂度目前按链深计，扩展分支算子时需泛化为节点计数 |
+| L-006 | `✅ 已开发已测试` | AI | L-005,D03 | 3 | 两个互补模块构成生成/审查 Sub-agent 独立 SkillBinding 面：`domain_sdk/factor_agents.py` 提供三维隔离契约（`FactorSubAgentSpec`/`FactorSubAgentPair` 强制 Binding、模型配置、上下文命名空间互相隔离）、结构化 `ModelReviewVerdict` 与 `merge_model_review`（模型只能否决、不能放行，REVIEWER_REJECTED 追加否决）、绑定文档经 `skill-binding-1.0.schema.json` 校验；`domain_sdk/factor_subagents.py` 提供双向 Schema 校验的 `GenerationSubAgent`/`ReviewSubAgent`（jsonschema，越权字段与副作用夹带拒绝）、独立 Capability 契约/Manifest/域注册、平台 `SkillResolver` 实解析出两条互异 Binding、`GovernedFactorReview` 接入 merge 语义且模型失败回落纯硬门槛；verdict `reasons` 数组上限 16 条防超长输出污染下游 | 24+12 项测试通过：隔离（Binding/模型/上下文/端口互不共享、输入突变不泄漏、非法输入不触达模型端口）与 Schema（双向校验、结构化 verdict 枚举、绑定文档 Schema、reasons 数量上限）双验收达成；814 项全量测试、95.22% 覆盖率；`uv build` + 全新 venv 安装后 `scripts/agents_smoke.py` 冒烟通过。两模块由不同开发线并行产出，已统一能力 ID（factor.generation/factor.review）并由 GovernedFactorReview 串联 |
+| L-007 | `✅ 已开发已测试` | AI/BE | L-005 | 4 | `domain_sdk/factor_backtest.py`：硬编码确定性回测硬门槛——版本化内容寻址 `SimulationPanel` 与固定种子合成面板、`BacktestSpec`（样本切分/预热/样本外下界/换仓周期/成本滑点/分位）、封闭因果算子表（ts_mean/ts_delta/rank，回看深度超限零计算拒绝）、Spearman 截面 IC 与 ICIR、分桶年度稳定性、近期持续性、多空分位组合净 Sharpe（含成本/滑点）、换手、与因子库的 IC 相关性去重、样本外衰减确认与 8 维联合失败模式过滤；`ValidationReport` 记录数据版本/内容 digest/参数 digest/指标/失败模式并支持 round-trip | 防泄漏 golden：篡改样本外价格后样本内全部指标逐字节不变；回测 golden：同输入两次求值 to_dict 逐字节一致且 golden 快照固化；28 项测试通过（含守卫与算子覆盖），factor_backtest 100% 覆盖；842 项全量测试、95.36% 覆盖率，Ruff/Mypy strict 通过；`uv build` + 全新 venv 安装后 `scripts/backtest_smoke.py` 冒烟通过。已知局限：内置合成面板（4 资产 300 根）规模小、IC 波动大，真实行情接入属后续配置面；独立性仅 IC 序列相关（未做持仓重叠度）；Sharpe 年化按 252 交易日、换手按多空总翻转=1 归一，口径需在 L-009 摘要保持一致；失败模式库持久化归 L-009 |
+| L-008 | `✅ 已开发已测试` | AI/BE | L-007 | 2 | `domain_sdk/factor_fsa.py`：算子骨架抽象（`skeleton_key` 抽掉窗口与字段、`subtree_skeletons` 统计全部算子子树、`variant_signature` 参数变体签名）、`FsaTracker` 按轮滑动窗口统计（占比、入库增量价值、变体集合）、冷启动最小观测量守卫、版本化 `BanEntry`（原因/证据/颁发轮/统计窗口/解除条件/解除轮，历史永不改写）、双解除条件（连续 N 轮低于解除份额或增量价值回归）+ 带原因的手动解除、重禁版本递增、`intercept` 拦截任意位置的禁令骨架与超上限参数变体（纯查询，不触碰已入库因子）、快照/恢复逐轮一致 | 16 项测试通过：多样性验收（主导骨架被禁后拦截生效、轮内占比归零、骨架多样性上升、解除条件达成）、有价值主导骨架永不被禁、冷启动不误杀、任意位置/变体拦截、变体上限、解除与重禁版本、手动解除、历史与因子库不改写、快照回放一致；858 项全量测试、95.29% 覆盖率，Ruff/Mypy strict 通过；`uv build` + 全新 venv 安装后 `scripts/fsa_smoke.py` 冒烟通过。接线注意：`accepted_hashes` 口径必须与 L-007 `ValidationReport.accepted` 对齐，否则增量价值信号失真；骨架键抽掉字段属激进选择（可按需把字段纳入骨架键）；变体上限只约束根骨架 |
+| L-009 | `✅ 已开发已测试` | BE/OPS | L-002,L-007 | 2 | `domain_sdk/factor_hooks.py`：幂等事件总线 `FactorHookBus`（幂等键 `{event}:{profile}:{version}:{iteration}:{digest}`，同键重放零投递、有界键记忆、订阅者异常记录不阻塞他人、重名注册拒绝）+ 三个内置摘要（`FactorIterationSummaryCollector` 完成/失败/候选/入库计数、`FactorFailureModeCollector` 失败模式聚合、`FactorCoverageCollector` 按策略覆盖）；`FactorDiscoveryLoop` 接线五类事件——`iteration.completed/failed`（iterate 与 commit_iteration）、`checkpoint.committed`（_commit 与 commit_iteration，含 iteration=0 初始建行）、`factor.accepted`（按因子哈希逐个投递）、`profile.stalled`（REQUIRES_REVIEW 转换，恢复重放不重复触发）；L-004 搜索状态快照经 commit_iteration 写入指针 payload、initialize 跨实例恢复且重写不丢失 | 12 项测试通过：总线幂等（同键重放零投递、异键独立投递）、订阅者故障隔离、重名拒绝、三类摘要计数（含重放不重复计数）、Loop 五事件接线（含崩溃重放幂等、stall 恢复重放只投一次）、搜索状态跨实例经指针往返且缺省不写键；869 项全量测试、95.33% 覆盖率，Ruff/Mypy strict 通过；`uv build` + 全新 venv 安装后 `scripts/hooks_smoke.py` 冒烟通过。已知边界：总线去重是进程内有界记忆，跨进程持久化去重依赖事件键进入事实表（L-010 回放覆盖）；摘要容量 128 轮滑动 |
+| L-010 | `✅ 已开发已测试` | QA | L-001～L-009 | 4 | `domain_sdk/factor_acceptance.py`：全链路确定性回放驱动器 `FactorDiscoveryReplay`——把 L-003 配额生成、L-004 自适应（含快照入 checkpoint）、L-005 硬门槛（+链回看预算越界过滤）、L-008 FSA 拦截、L-007 硬编码回测（独立库取最近 8 个、每轮回测预算上限）、L-002 事务持久化、L-009 Hooks 摘要串成单管线；四类故障注入（进程崩溃恢复、审查全拒、指针滞后自愈、事实删改→REQUIRES_REVIEW→reconcile）；`FactorAcceptanceReport` 七项检查（轮数精确、回放完成、零非法回测、零重复回测、恢复契约、覆盖、多样性）+ 成本/覆盖/多样性计数与逐轮 timeline，支持 to_dict/from_dict 与失败标注；`scripts/l010_acceptance.py` CLI（--rounds/--faults/--output，标准故障集） | 6 项测试通过：默认 581 轮全检查 PASSED、成本/覆盖/多样性报告断言、120 轮 4 故障恢复契约、blackout 轮冻结调节反馈（无回测事实不动量）、报告 round-trip 与 FAILED 标注；875 项全量测试、95.27% 覆盖率，Ruff/Mypy strict 通过；`uv build` + 全新 venv 执行 `scripts/l010_acceptance.py --rounds 581 --faults standard` **PASSED**（581 轮、10 故障、7 因子入库、42 骨架、9 次 FSA 禁令、32 次回测、零非法/零重复）并落盘 JSON 报告，其余 8 个冒烟全部通过 |
+
+### 12.1 演化自动运行装配（v1.5 收尾装配，2026-09-06）
+
+| ID | 状态 | 负责人 | 依赖 | 估算 | 交付物 | 验收 |
+|---|---|---|---|---:|---|---|
+| W-01 | `✅ 已开发已测试` | AI/BE | E05,U14 | 1 | `apps/quant_agent/auto_evolution.py`：`auto_plan_candidate` 从持久化 `dna_fitness_snapshot` 自动检测弱点（EvolutionDriver 规则策略）、生成受治理操作并复用 E03 提案服务落库；返回 PROPOSED/NO_WEAKNESS/RISK_BLOCKED/REJECTED 四态裁决；`/evolution auto-plan <proposal-id> --dataset-id ...` CLI 与交互终端帮助同步 | 5 项测试：弱点→提案（操作经 DnaCandidateGenerator 治理校验）、健康快照 NO_WEAKNESS 且零提案、RISK_BLOCKED 拦截、缺快照拒绝、CLI 往返（含缺参拒绝） |
+| W-02 | `✅ 已开发已测试` | BE | L-002～L-009 | 1 | `apps/quant_agent/factor_loop_app.py`：`FactorLoopApp`/`run_factor_rounds`/`factor_loop_status`——在持久事实库上按轮执行生成→审查→越界过滤→FSA→回测→反馈→提交（checkpoint 携带 L-004 搜索状态），`bia factor-loop run/status` CLI（--rounds/--seed/--candidates/--max-backtests/--checkpoint） | 4 项测试：轮次执行并持久化（iteration=轮数、hooks 按调用累计）、跨调用续跑（4+3→iteration 7）、未初始化状态、零轮拒绝；打包后实测 `factor-loop run --rounds 8` + `--rounds 3` 续跑至 11、status 返回搜索状态 |
 
 默认生成比例为 mutate 25%、crossover 25%、parameter perturb 15%、random 15%、LLM mechanism 20%；实际每轮配额必须记录到 checkpoint。该扩展不改变 MVP 的“无真实交易”边界。
