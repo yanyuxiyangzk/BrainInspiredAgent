@@ -90,7 +90,7 @@ def parser() -> argparse.ArgumentParser:
         "skills": ("list", "show", "health", "bindings", "enable", "disable"),
         "workflows": ("list", "active", "show", "runs", "validate", "activate", "deprecate"),
         "dna": ("list", "active", "show", "lineage", "explain", "executions", "transition"),
-        "evolution": ("candidates", "fitness", "datasets", "replay", "compare", "campaigns", "explain", "promote", "rollback", "kill", "build-dataset", "propose"),
+        "evolution": ("candidates", "fitness", "datasets", "replay", "compare", "campaigns", "explain", "promote", "rollback", "kill", "build-dataset", "propose", "auto-plan"),
         "schedules": ("list", "show", "history", "trigger"),
     }.items():
         query = commands.add_parser(name, help=f"query {name}")
@@ -138,6 +138,15 @@ def parser() -> argparse.ArgumentParser:
     loop_status = commands.add_parser("loop", help="inspect LoopEngine state")
     loop_status.add_argument("loop_command", choices=("status", "services", "lag", "checkpoints"),
                              nargs="?", default="status")
+    factor_loop = commands.add_parser(
+        "factor-loop", help="run or inspect the factor discovery loop"
+    )
+    factor_loop.add_argument("loop_command", choices=("run", "status"), nargs="?", default="status")
+    factor_loop.add_argument("--rounds", type=int, default=1)
+    factor_loop.add_argument("--seed", type=int, default=20260907)
+    factor_loop.add_argument("--candidates", type=int, default=12)
+    factor_loop.add_argument("--max-backtests", type=int, default=4)
+    factor_loop.add_argument("--checkpoint", type=Path, default=None)
     commands.add_parser("health", help="check database liveness and readiness")
     diagnose = commands.add_parser("diagnose", help="show a read-only diagnostic snapshot")
     diagnose.add_argument("--limit", type=int, default=20)
@@ -403,6 +412,17 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
                 except ValueError as error:
                     return {"status": "REJECTED", "governed": True, "reason": str(error)}
                 return {"status": "PROPOSED", "governed": True} | proposal_result.to_dict()
+            if args.view == "auto-plan":
+                if not args.identifier or not args.dataset_id:
+                    return {"status": "REJECTED", "governed": True,
+                            "reason": ("proposal ID and --dataset-id/--dataset-version "
+                                       "are required")}
+                from apps.quant_agent.auto_evolution import auto_plan_candidate
+                auto_plan_result = await auto_plan_candidate(
+                    database, proposal_id=args.identifier,
+                    dataset_id=args.dataset_id, dataset_version=args.dataset_version,
+                )
+                return {"governed": True} | auto_plan_result.to_dict()
             return await surface_query.evolution(args.view, args.limit, args.identifier)
         if args.command == "schedules":
             if args.view == "trigger":
@@ -503,6 +523,31 @@ async def _dispatch(database: SQLiteDatabase, args: argparse.Namespace) -> objec
             "reason": "LoopEngine snapshots are process-local",
             "next_action": "run bia and use /loop inside the interactive terminal",
         }
+    if args.command == "factor-loop":
+        from apps.quant_agent.factor_loop_app import (
+            factor_loop_status,
+            run_factor_rounds,
+        )
+
+        checkpoint = args.checkpoint or Path(str(args.database) + "-factor-pointer.json")
+        loop_database = SQLiteDatabase(Path(args.database))
+        await loop_database.initialize()
+        try:
+            if args.loop_command == "run":
+                if args.rounds < 1:
+                    return {"status": "REJECTED", "governed": True,
+                            "reason": "--rounds must be positive"}
+                summary = await run_factor_rounds(
+                    loop_database, checkpoint, rounds=args.rounds, seed=args.seed,
+                    candidates_per_round=args.candidates,
+                    max_backtests_per_round=args.max_backtests,
+                )
+                return {"status": "RAN", "governed": True} | summary
+            return {"status": "OK", "governed": False} | await factor_loop_status(
+                loop_database, checkpoint
+            )
+        finally:
+            await loop_database.close()
     if args.command == "replay":
         bundle = await TraceQuery(database).by_correlation(str(args.correlation_id))
         return {name: _plain(getattr(bundle, name)) for name in (
