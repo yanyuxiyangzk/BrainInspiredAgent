@@ -52,7 +52,7 @@ class GovernedLlmClient:
         last: Exception | None = None
         for attempt in range(self.config.max_retries + 1):
             try:
-                self.budget.reserve(request.timeout_seconds and 1)
+                self.budget.reserve(1)
                 response = await asyncio.wait_for(self.model.generate(request), self.config.timeout_seconds)
                 self.usage.record(response); return response
             except asyncio.CancelledError: raise
@@ -89,7 +89,9 @@ class Conversation:
         return Conversation(self.conversation_id, self.messages + tuple(messages), self.metadata)
 
 class ConversationService:
-    def __init__(self, client: GovernedLlmClient) -> None: self.client, self._sessions = client, {}
+    def __init__(self, client: GovernedLlmClient) -> None:
+        self.client = client
+        self._sessions: dict[str, Conversation] = {}
     def get(self, conversation_id: str) -> Conversation: return self._sessions.setdefault(conversation_id, Conversation(conversation_id))
     async def send(self, conversation_id: str, content: str, *, correlation_id: str, system: str | None = None) -> ModelResponse:
         session = self.get(conversation_id)

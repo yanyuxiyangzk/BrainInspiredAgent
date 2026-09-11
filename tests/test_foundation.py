@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import pathlib
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 from uuid import UUID
@@ -151,6 +152,32 @@ def test_settings_reject_invalid_names_timeout_and_mutation(
     assert settings.service_name == "from-process"
     with pytest.raises(FrozenInstanceError):
         settings.service_name = "changed"  # type: ignore[misc]
+
+
+def test_settings_load_dotenv_without_overriding_process_environment(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".env").write_text(
+        "# comment line\n"
+        "\n"
+        "BIA_LOG_LEVEL=DEBUG\n"
+        "BIA_SERVICE_NAME=from-dotenv\n"
+        "MALFORMED_LINE_WITHOUT_EQUALS\n"
+        'BIA_MODEL_PROVIDER="openai-compatible"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("BIA_LOG_LEVEL", raising=False)
+    monkeypatch.delenv("BIA_SERVICE_NAME", raising=False)
+    monkeypatch.delenv("BIA_MODEL_PROVIDER", raising=False)
+
+    settings = Settings.from_env()
+    assert settings.log_level is LogLevel.DEBUG
+    assert settings.service_name == "from-dotenv"
+    assert settings.model_provider == "openai-compatible"  # 引号被剥离
+
+    monkeypatch.setenv("BIA_SERVICE_NAME", "process-wins")
+    assert Settings.from_env().service_name == "process-wins"  # 进程环境优先于 .env
 
 
 def test_loggers_emit_structured_fields(caplog: pytest.LogCaptureFixture) -> None:

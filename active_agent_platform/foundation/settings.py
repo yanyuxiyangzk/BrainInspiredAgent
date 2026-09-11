@@ -43,7 +43,7 @@ class Settings:
                         if key and key not in os.environ:
                             loaded[key] = value
             loaded.update(os.environ)
-            values = loaded
+            values: Mapping[str, str] = loaded
         else:
             values = env
         level_name = values.get("BIA_LOG_LEVEL", "INFO").upper()

@@ -1,4 +1,5 @@
 import copy
+from collections.abc import Mapping
 from typing import cast
 
 import pytest
@@ -212,3 +213,138 @@ def test_validator_accepts_parallel_delay_and_compensation_controls() -> None:
     known = {("child_flow", "1.0.0"): definition()}
     result = WorkflowValidator().validate(value, known_workflows=known)
     assert result.topological_order[0] == "start"
+
+
+def test_validator_limits_must_be_positive() -> None:
+    with pytest.raises(ValueError, match="limits must be positive"):
+        WorkflowValidator(max_nodes=0)
+    with pytest.raises(ValueError, match="limits must be positive"):
+        WorkflowValidator(max_depth=0)
+
+
+def test_validator_rejects_non_mapping_definition() -> None:
+    with pytest.raises(WorkflowValidationError, match="must be an object"):
+        WorkflowValidator().validate(cast(Mapping[str, object], ["nope"]))
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda value: value.update(name=""),
+        lambda value: value.update(input_schema=[]),
+        lambda value: value.update(policy="nope"),
+        lambda value: value.update(workflow_id=5),
+        lambda value: value["policy"].update(required_capabilities=["report.summary", "report.summary"]),
+    ],
+)
+def test_validator_rejects_additional_contract_violations(mutate: object) -> None:
+    value = definition()
+    mutate(value)  # type: ignore[operator]
+    with pytest.raises(WorkflowValidationError):
+        WorkflowValidator().validate(value)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda node: node.update(node_id="Bad-ID"),
+        lambda node: node.update(timeout_seconds=0),
+        lambda node: node.update(capability="SUMMARY"),
+        lambda node: node.update(capability="other.thing"),
+        lambda node: node.update(constraints={"side_effect": "WRITE"}),
+    ],
+)
+def test_validator_rejects_invalid_skill_node_fields(mutate: object) -> None:
+    nodes = definition()["nodes"]
+    assert isinstance(nodes, list)
+    node = copy.deepcopy(nodes[0])
+    mutate(node)  # type: ignore[operator]
+    with pytest.raises(WorkflowValidationError):
+        WorkflowValidator().validate(definition(nodes=[node]))
+
+
+def test_validator_rejects_unknown_sub_workflow_reference() -> None:
+    child = {
+        "node_id": "child",
+        "type": "sub_workflow",
+        "depends_on": [],
+        "workflow_id": "ghost_flow",
+        "workflow_version": "1.0.0",
+        "input": {},
+        "failure_policy": "propagate",
+    }
+    value = definition(nodes=[cast("dict[str, object]", child)])
+    value["workflow_id"] = "parent_flow"
+    value["output_mapping"] = {}
+    with pytest.raises(WorkflowValidationError, match="unknown sub-workflow"):
+        WorkflowValidator().validate(value, known_workflows={("other", "1.0.0"): definition()})
+
+
+def test_validator_rejects_non_object_node() -> None:
+    with pytest.raises(WorkflowValidationError, match="every node"):
+        WorkflowValidator().validate(definition(nodes=[cast("dict[str, object]", ["node"])]))
+
+
+def _branch_workflow() -> tuple[dict[str, object], dict[str, object]]:
+    nodes: list[dict[str, object]] = [
+        {"node_id": "choose", "type": "condition", "depends_on": [], "expression": "$.params.ok == true", "then": ["yes"], "else": ["no"]},
+        {"node_id": "yes", "type": "skill", "depends_on": ["choose"], "capability": "report.summary", "capability_version": "1.0", "input": {}, "constraints": {"side_effect": "PURE"}},
+        {"node_id": "no", "type": "skill", "depends_on": ["choose"], "capability": "report.summary", "capability_version": "1.0", "input": {}, "constraints": {"side_effect": "PURE"}},
+    ]
+    value = definition(nodes=nodes)
+    value["output_mapping"] = {"summary": "$.nodes.yes.output"}
+    return value, nodes[0]
+
+
+def test_validator_rejects_non_string_condition_expression() -> None:
+    value, choose = _branch_workflow()
+    choose["expression"] = 5
+    with pytest.raises(WorkflowValidationError, match="condition expression"):
+        WorkflowValidator().validate(value)
+
+
+def test_validator_rejects_invalid_condition_branch_targets() -> None:
+    value, choose = _branch_workflow()
+    choose["then"] = ["BAD-ID"]
+    with pytest.raises(WorkflowValidationError, match="condition branch"):
+        WorkflowValidator().validate(value)
+
+
+def test_validator_rejects_invalid_parallel_controls() -> None:
+    skills: list[dict[str, object]] = [
+        {"node_id": "left", "type": "skill", "depends_on": [], "capability": "report.summary", "capability_version": "1.0", "input": {}, "constraints": {"side_effect": "PURE"}},
+        {"node_id": "right", "type": "skill", "depends_on": [], "capability": "report.summary", "capability_version": "1.0", "input": {}, "constraints": {"side_effect": "PURE"}},
+    ]
+    over = definition(
+        nodes=[*copy.deepcopy(skills), {"node_id": "join", "type": "parallel", "depends_on": [], "branches": [["left"], ["right"]], "failure_policy": "min_success", "min_success": 5}]
+    )
+    with pytest.raises(WorkflowValidationError, match="min_success"):
+        WorkflowValidator().validate(over)
+
+    bad_target = definition(
+        nodes=[*copy.deepcopy(skills), {"node_id": "join", "type": "parallel", "depends_on": [], "branches": [["left"], ["RIGHT"]], "failure_policy": "collect_all"}]
+    )
+    with pytest.raises(WorkflowValidationError, match="parallel branch"):
+        WorkflowValidator().validate(bad_target)
+
+
+def test_validator_requires_compensation_node_for_compensate_policy() -> None:
+    child = {
+        "node_id": "child",
+        "type": "sub_workflow",
+        "depends_on": [],
+        "workflow_id": "summary_flow",
+        "workflow_version": "1.0.0",
+        "input": {},
+        "failure_policy": "compensate",
+    }
+    value = definition(nodes=[cast("dict[str, object]", child)])
+    value["output_mapping"] = {}
+    with pytest.raises(WorkflowValidationError, match="compensation node required"):
+        WorkflowValidator().validate(value)
+
+
+def test_expression_comparison_requires_comparable_numbers() -> None:
+    assert evaluate_expression("$.name > 5", {"name": "text"}) is False
+    with pytest.raises(ExpressionError, match="finite"):
+        parse_expression("$.a > 1.0e999")

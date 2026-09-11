@@ -1,12 +1,16 @@
 """Governed, domain-neutral DNA self-evolution orchestration."""
 from __future__ import annotations
-import hashlib, json
+
+import hashlib
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from collections.abc import Mapping
 from typing import Protocol
+
 from active_agent_platform.storage import SQLiteDatabase
 from brain_kernel.ports import Clock
+
 
 class EvolutionStage(StrEnum):
     CANDIDATE="CANDIDATE"; VALIDATED="VALIDATED"; SHADOW="SHADOW"; CANARY="CANARY"; ACTIVE="ACTIVE"; ROLLED_BACK="ROLLED_BACK"
@@ -22,7 +26,12 @@ class ReplayResult:
 class CandidateGenerator(Protocol):
     async def generate_candidate(self, context: Mapping[str, object]) -> Mapping[str, object]: ...
 class DnaEvolutionRuntime:
-    def __init__(self, database: SQLiteDatabase | None = None, clock: Clock | None = None) -> None: self.candidates={}; self.replays={}; self.audit=[]; self.database=database; self.clock=clock
+    def __init__(self, database: SQLiteDatabase | None = None, clock: Clock | None = None) -> None:
+        self.candidates: dict[str, DnaCandidate] = {}
+        self.replays: dict[str, ReplayResult] = {}
+        self.audit: list[dict[str, object]] = []
+        self.database = database
+        self.clock = clock
     async def propose(self, generator: CandidateGenerator, *, dna_id: str, version: str, context: Mapping[str, object], parent_digest: str | None = None) -> DnaCandidate:
         document=await generator.generate_candidate(context)
         if not isinstance(document, Mapping) or not document: raise ValueError("candidate must be a non-empty object")

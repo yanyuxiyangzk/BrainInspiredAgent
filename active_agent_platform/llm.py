@@ -97,7 +97,8 @@ class FakeChatModel:
 
     def __init__(self, responses: Sequence[str | Mapping[str, object] | Exception], *, provider: str = "fake", model: str = "fake-1") -> None:
         self._responses = iter(responses)
-        self.provider, self.model, self.requests = provider, model, []
+        self.requests: list[ModelRequest] = []
+        self.provider, self.model = provider, model
 
     async def generate(self, request: ModelRequest) -> ModelResponse:
         self.requests.append(request)
@@ -209,7 +210,7 @@ class OpenAICompatibleModel:
     @staticmethod
     def _read(request: Request) -> str:
         with urlopen(request, timeout=60) as response:
-            return response.read().decode("utf-8")
+            return str(response.read(), "utf-8")
 
     async def generate_structured(self, request: ModelRequest) -> Mapping[str, object]:
         response = await self.generate(request)
