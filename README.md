@@ -2,6 +2,8 @@
 
 BIA（Brain-inspired Initiative Agent）是一个持续运行、事件驱动、可审计的主动式 Agent 项目。当前已冻结 MVP 核心设计，并按开发计划进入实现。
 
+> **分支说明**：当前分支 `generic-core` 只包含领域中性的运行时（Kernel / Platform / Domain SDK 机制 / `brainagent` CLI / `hello_research` 样例）。量化应用（`apps/quant_agent`、`bia` 命令、市场摘要/日复盘/交互终端、因子回测与验收回放）位于 `main` 分支。
+
 ## 项目原则
 
 - 主动性来自事件、目标和调度，而不是无限调用大模型。
@@ -27,10 +29,13 @@ BIA（Brain-inspired Initiative Agent）是一个持续运行、事件驱动、�
 ## 工程分层
 
 ```text
-brain_kernel → active_agent_platform → domain_sdk → apps/quant_agent
+brain_kernel → active_agent_platform → domain_sdk → apps
 ```
 
-当前已完成 Kernel、Platform、Domain SDK、量化 Fake Skills、DNA 演化链和可运行量化闭环。外部 CLI 命令经 Outbox/Inbox、Planner、RiskGate、Grant、Workflow Runtime、Outcome 和 Insight 投影处理；重启保持幂等和完整 Trace。当前不接真实交易，行情、摘要和通知默认使用本地 Fake Adapter。
+`apps` 在本分支提供领域中性的 `brainagent` CLI（start/status/health/diagnose/metrics/
+trace/migrations/run，`--plugin module:PluginClass` 装配任意领域插件）与
+`hello_research` 可移植装配示例。外部命令经 Outbox/Inbox、Planner、RiskGate、
+Grant、Workflow Runtime、Outcome 处理；重启保持幂等和完整 Trace。
 
 ## 本地开发
 
@@ -44,63 +49,26 @@ uv run pytest
 uv run python -m compileall -q brain_kernel active_agent_platform domain_sdk apps
 ```
 
-运行非量化可移植装配示例：
+## 上手：领域中性的运行时
+
+初始化并检查运行时（SQLite 事实库默认在当前目录或 `--database` 指定）：
 
 ```bash
-uv run python -m apps.hello_research
+brainagent --database bia.db start
+brainagent --database bia.db --plugin apps.hello_research.plugin:HelloResearchPlugin status
+brainagent --database bia.db health
+brainagent --database bia.db metrics
 ```
 
-该入口会通过 Domain SDK 装配 Capability、两个可替换 Skill、Workflow、LoopProfile 和 OutcomeEvaluator，初始化 SQLite 与 LoopEngine 后干净退出并输出注册摘要。
+装配任意领域：实现 `DomainPlugin.contribute()`（Capability / Skill / Workflow /
+LoopProfile / OutcomeEvaluator），用 `--plugin module:PluginClass` 注入，
+无需修改 Kernel 或 Platform。
 
-## 启动量化闭环
-
-推荐先安装本地命令，然后直接进入交互终端；不带子命令执行 `bia` 会自动启动 Runtime，数据默认保存在 `~/.local/state/bia/bia.db`：
+JSON 驱动的 Workflow 与 DNA 自动演化演示（真实模块、临时数据库）：
 
 ```bash
-uv tool install --editable .
-bia
+uv run python scripts/workflow_demo.py        # 五类节点全链执行
+uv run python scripts/evolution_demo.py       # 弱点→候选→回放→选择→晋级
 ```
 
-进入后使用 Slash Command：
-
-```text
-/market INDEX.TEST,INDEX.DEMO --title "今日市场摘要"
-/commands
-/insights
-/health
-/loop status
-/loop services
-/loop lag
-/loop checkpoints
-/help
-/exit
-```
-
-在真实终端中输入 `/` 时会立即出现 Slash Command 菜单；继续输入 `/h`，菜单会实时过滤为 `/health`、`/help`。可以用上下键选择、回车执行，也可以继续输入完整命令。
-
-下面的非交互方式继续保留，适合脚本、systemd 和自动化调用。
-
-终端一启动常驻 Runtime：
-
-```bash
-export BIA_DB="$HOME/.local/state/bia/bia.db"
-bia --database "$BIA_DB" run
-```
-
-默认在 `Asia/Shanghai` 的交易日 18:00 执行日复盘。时间、时区、触发窗口和停机错过策略均可配置，例如：
-
-```bash
-bia --database "$BIA_DB" run --daily-review-at 18:30 \
-  --daily-review-timezone Asia/Shanghai \
-  --daily-review-missed-policy FIRE_ONCE
-```
-
-终端二提交并查询市场摘要：
-
-```bash
-bia --database "$BIA_DB" market summary --symbols INDEX.TEST,INDEX.DEMO
-bia --database "$BIA_DB" commands
-bia --database "$BIA_DB" insights latest
-```
-
-`market summary` 返回 message ID；使用 `bia commands MESSAGE_ID` 查看 `ACCEPTED/RUNNING/SUCCEEDED/FAILED`，成功后可用 `insights show/explain` 查看证据与完整 correlation 链。
+量化闭环（`bia` 命令、市场摘要、日复盘、交互终端）见 `main` 分支 README。

@@ -4,6 +4,8 @@
 计划版本：MVP 0.3 / Plan 1.1  
 最后核验：2026-09-06
 
+> **分支说明（generic-core，2026-09-12 起生效）**：本分支只保留领域中性的运行时（kernel/platform/SDK 机制 + `brainagent` CLI + `hello_research` 样例）。下述量化专属交付物**仅存在于 `main` 分支**，本分支不包含其代码：`apps/quant_agent` 全部（U/Q/T04/T05/U11/U17 引用的应用面、W-01/W-02 的量化入口、R01～R08 交互终端）、`domain_sdk/factor_backtest.py`（L-007 交付物）、`domain_sdk/factor_acceptance.py`（L-010 交付物）及其测试与冒烟。这些行的状态标记以 main 为准；本分支上因子链为"机制库完整、评估环节在 main"。通用分支的演化自动入口为 `brainagent evolution auto-plan`（G-01，见 §12.2）。
+
 本文是 MVP 唯一派工与进度基线。架构文档描述设计，本文只记录做什么、谁负责、依赖什么、如何验收以及是否真实完成。
 
 ## 1. 当前基线
@@ -331,5 +333,26 @@ bia 交互终端的直接对话能力：复用平台治理 LLM 栈（Adapter + G
 |---|---|---|---|---:|---|---|
 | W-01 | `✅ 已开发已测试` | AI/BE | E05,U14 | 1 | `apps/quant_agent/auto_evolution.py`：`auto_plan_candidate` 从持久化 `dna_fitness_snapshot` 自动检测弱点（EvolutionDriver 规则策略）、生成受治理操作并复用 E03 提案服务落库；返回 PROPOSED/NO_WEAKNESS/RISK_BLOCKED/REJECTED 四态裁决；`/evolution auto-plan <proposal-id> --dataset-id ...` CLI 与交互终端帮助同步 | 5 项测试：弱点→提案（操作经 DnaCandidateGenerator 治理校验）、健康快照 NO_WEAKNESS 且零提案、RISK_BLOCKED 拦截、缺快照拒绝、CLI 往返（含缺参拒绝） |
 | W-02 | `✅ 已开发已测试` | BE | L-002～L-009 | 1 | `apps/quant_agent/factor_loop_app.py`：`FactorLoopApp`/`run_factor_rounds`/`factor_loop_status`——在持久事实库上按轮执行生成→审查→越界过滤→FSA→回测→反馈→提交（checkpoint 携带 L-004 搜索状态），`bia factor-loop run/status` CLI（--rounds/--seed/--candidates/--max-backtests/--checkpoint） | 4 项测试：轮次执行并持久化（iteration=轮数、hooks 按调用累计）、跨调用续跑（4+3→iteration 7）、未初始化状态、零轮拒绝；打包后实测 `factor-loop run --rounds 8` + `--rounds 3` 续跑至 11、status 返回搜索状态 |
+
+### 12.2 通用分支装配（generic-core，2026-09-12）
+
+| ID | 状态 | 负责人 | 依赖 | 估算 | 交付物 | 验收 |
+|---|---|---|---|---:|---|---|
+| G-01 | `✅ 已开发已测试` | AI/BE | E05,E06 | 1 | `apps/generic_evolution.py`：领域中性感 `auto_plan_candidate`——任意 ACTIVE 基线 + 持久化 fitness 快照 → EvolutionDriver（`artifact_label` 参数化）→ 候选策略从基线工作流自推导（能力/绑定/权限钉死基线）→ DnaCandidateGenerator 受治理提案；`brainagent evolution auto-plan <id> --baseline --dataset-id` CLI | 5 项测试：弱点→提案（操作落 build_summary、治理校验）、健康快照 NO_WEAKNESS 且零提案、RISK_BLOCKED、缺快照/缺基线拒绝、CLI 往返（含缺参拒绝） |
+
+## 13. 阶段 5：经验学习（规划草案，Draft）
+
+依据路线图 2026-09-02 调整：经验学习先于量化适配，在 Fake 数据上闭环记忆与经验验证。任务分解草案（领取前按 §8 DoR 逐条确认）：
+
+| ID | 交付物 | 验收（草案） |
+|---|---|---|
+| X-01 | WorkflowPatch 版本化格式（对既有 Workflow JSON 的最小 diff 契约）与 Schema | 正反例 Schema 测试 |
+| X-02 | 情景记忆 → 候选经验抽取器（Outcome/Trace → Experience 样本，含证据链） | 抽样 golden |
+| X-03 | 候选经验验证器（重放一致性、防过拟合下界） | 矛盾样本拒收测试 |
+| X-04 | 语义记忆评估集与错误召回度量 | 离线评估报告 |
+| X-05 | 矛盾处理与过期机制（TTL、冲突消解、审计） | 冲突/过期注入测试 |
+| X-06 | 记忆增强决策 A/B 闭环（有/无记忆双轨对比） | 决策质量提升且错误召回达标 |
+
+进入条件：X-01 Schema 评审通过；向量数据库选型延后至 X-04 结论（新开放问题待登记）。
 
 默认生成比例为 mutate 25%、crossover 25%、parameter perturb 15%、random 15%、LLM mechanism 20%；实际每轮配额必须记录到 checkpoint。该扩展不改变 MVP 的“无真实交易”边界。

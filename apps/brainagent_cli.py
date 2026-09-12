@@ -14,6 +14,7 @@ from typing import Any
 from active_agent_platform.foundation import SystemClock
 from active_agent_platform.metrics import prometheus
 from active_agent_platform.operations import PlatformOperations
+from active_agent_platform.storage import SQLiteDatabase
 from domain_sdk import DomainPlugin, RuntimeBuilder
 
 
@@ -34,6 +35,17 @@ def parser() -> argparse.ArgumentParser:
     trace.add_argument("correlation_id")
     commands.add_parser("migrations", help="show applied database migrations")
     commands.add_parser("status", help="show registered domain capabilities")
+    evolution = commands.add_parser(
+        "evolution", help="DNA evolution operations on the fact store"
+    )
+    evolution.add_argument(
+        "view", choices=("auto-plan",), default="auto-plan", nargs="?"
+    )
+    evolution.add_argument("identifier", nargs="?", help="proposal ID")
+    evolution.add_argument("--baseline", help="ACTIVE baseline DNA ID")
+    evolution.add_argument("--dataset-id")
+    evolution.add_argument("--dataset-version", default="1.0.0")
+    evolution.add_argument("--artifact-label", default="artifact")
     return root
 
 
@@ -107,6 +119,29 @@ async def run(argv: Sequence[str]) -> int:
             print(json.dumps(value, sort_keys=True))
         finally:
             await application.database.close()
+        return 0
+    if args.command == "evolution":
+        from apps.generic_evolution import auto_plan_candidate
+
+        if not args.identifier or not args.baseline or not args.dataset_id:
+            print(json.dumps({
+                "status": "REJECTED", "governed": True,
+                "reason": ("proposal ID, --baseline and --dataset-id "
+                           "(with --dataset-version) are required"),
+            }, sort_keys=True))
+            return 0
+        database = SQLiteDatabase(Path(args.database))
+        await database.initialize()
+        try:
+            result = await auto_plan_candidate(
+                database, proposal_id=args.identifier,
+                baseline_dna_id=args.baseline, dataset_id=args.dataset_id,
+                dataset_version=args.dataset_version,
+                artifact_label=args.artifact_label,
+            )
+        finally:
+            await database.close()
+        print(json.dumps({"governed": True} | result.to_dict(), sort_keys=True))
         return 0
     raise AssertionError("unreachable")
 
