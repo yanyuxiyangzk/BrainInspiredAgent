@@ -9,10 +9,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tests"))
 
 from sample_domain import SUMMARY_CAPABILITY, install_sample_skills
 

@@ -253,6 +253,27 @@ async def test_auto_plan_rejects_missing_snapshot_or_baseline(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
+async def test_auto_plan_rejects_missing_dataset(tmp_path: Path) -> None:
+    database = SQLiteDatabase(tmp_path / "nodata.db")
+    await database.initialize()
+    dna_id, dataset_id = await _seed(database, user_value=0.4)
+    del dataset_id
+    try:
+        result = await auto_plan_candidate(
+            database, proposal_id="gen-prop-6", baseline_dna_id=dna_id,
+            dataset_id="absent.dataset", dataset_version="1.0.0",
+        )
+        assert result.status == "REJECTED"
+        assert "dataset" in (result.reason or "")
+        count = await database.fetch_one(
+            "SELECT count(*) AS total FROM dna_candidate_proposal"
+        )
+        assert count is not None and int(count["total"]) == 0
+    finally:
+        await database.close()
+
+
+@pytest.mark.asyncio
 async def test_cli_auto_plan_roundtrip(tmp_path: Path) -> None:
     from apps.brainagent_cli import run
 

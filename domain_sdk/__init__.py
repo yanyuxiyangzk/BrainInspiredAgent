@@ -106,6 +106,12 @@ from domain_sdk.experience_dataset import (
     ExperienceDatasetSpec,
     ExperienceSample,
 )
+from domain_sdk.experience_extraction import (
+    EvidenceChain,
+    ExperienceCandidate,
+    ExperienceExtractionError,
+    ExperienceExtractor,
+)
 from domain_sdk.factor_adaptation import (
     DEFAULT_MAX_RATIOS,
     DEFAULT_MIN_RATIOS,
@@ -200,6 +206,14 @@ from domain_sdk.organization_execution import (
 )
 from domain_sdk.registry import PluginCatalog, PluginValidationError
 from domain_sdk.runtime import RuntimeBuilder
+from domain_sdk.workflow_patch import (
+    PatchBase,
+    PatchOperation,
+    WorkflowPatch,
+    WorkflowPatchError,
+    apply_patch,
+    digest_document,
+)
 
 __version__ = "0.1.0.dev0"
 
@@ -258,12 +272,16 @@ __all__ = [
     "DnaStatus",
     "DomainPlugin",
     "DomainSkillBridge",
+    "EvidenceChain",
     "EvolutionExplanation",
+    "ExperienceCandidate",
     "ExperienceDataset",
     "ExperienceDatasetBuilder",
     "ExperienceDatasetError",
     "ExperienceDatasetManifest",
     "ExperienceDatasetSpec",
+    "ExperienceExtractionError",
+    "ExperienceExtractor",
     "ExperienceSample",
     "ExplainRequest",
     "ExplorationPolicy",
@@ -312,6 +330,8 @@ __all__ = [
     "OrganizationPolicyProfile",
     "OutcomeEvaluator",
     "ParentPool",
+    "PatchBase",
+    "PatchOperation",
     "PersistentAgentDnaRecord",
     "PersistentAgentDnaRegistry",
     "PersistentDnaRecord",
@@ -356,10 +376,14 @@ __all__ = [
     "SkillRegistration",
     "SubAgentError",
     "WorkflowDnaReference",
+    "WorkflowPatch",
+    "WorkflowPatchError",
     "WorkflowRegistration",
+    "apply_patch",
     "assert_schema_backward_compatible",
     "compute_facts_digest",
     "compute_library_digest",
+    "digest_document",
     "factor_subagent_capability_contracts",
     "factor_subagent_manifests",
     "factor_subagent_registrations",

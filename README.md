@@ -33,7 +33,7 @@ brain_kernel → active_agent_platform → domain_sdk → apps
 ```
 
 `apps` 在本分支提供领域中性的 `brainagent` CLI（start/status/health/diagnose/metrics/
-trace/migrations/run，`--plugin module:PluginClass` 装配任意领域插件）与
+trace/migrations/evolution auto-plan/run，`--plugin module:PluginClass` 装配任意领域插件）与
 `hello_research` 可移植装配示例。外部命令经 Outbox/Inbox、Planner、RiskGate、
 Grant、Workflow Runtime、Outcome 处理；重启保持幂等和完整 Trace。
 

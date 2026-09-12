@@ -2,7 +2,7 @@
 
 状态：MVP 0.1、0.1.1、0.2 与 DNA MVP 全部完成；交互终端与 LLM 对话（R01～R08）已完成；v1.5 因子发现扩展 L-001～L-010 全部完成并通过验收回放；演化自动运行装配 W-01/W-02 完成（`/evolution auto-plan` 与 `bia factor-loop run/status` 入口可用）  
 计划版本：MVP 0.3 / Plan 1.1  
-最后核验：2026-09-06
+最后核验：2026-09-12
 
 > **分支说明（generic-core，2026-09-12 起生效）**：本分支只保留领域中性的运行时（kernel/platform/SDK 机制 + `brainagent` CLI + `hello_research` 样例）。下述量化专属交付物**仅存在于 `main` 分支**，本分支不包含其代码：`apps/quant_agent` 全部（U/Q/T04/T05/U11/U17 引用的应用面、W-01/W-02 的量化入口、R01～R08 交互终端）、`domain_sdk/factor_backtest.py`（L-007 交付物）、`domain_sdk/factor_acceptance.py`（L-010 交付物）及其测试与冒烟。这些行的状态标记以 main 为准；本分支上因子链为"机制库完整、评估环节在 main"。通用分支的演化自动入口为 `brainagent evolution auto-plan`（G-01，见 §12.2）。
 
@@ -338,7 +338,7 @@ bia 交互终端的直接对话能力：复用平台治理 LLM 栈（Adapter + G
 
 | ID | 状态 | 负责人 | 依赖 | 估算 | 交付物 | 验收 |
 |---|---|---|---|---:|---|---|
-| G-01 | `✅ 已开发已测试` | AI/BE | E05,E06 | 1 | `apps/generic_evolution.py`：领域中性感 `auto_plan_candidate`——任意 ACTIVE 基线 + 持久化 fitness 快照 → EvolutionDriver（`artifact_label` 参数化）→ 候选策略从基线工作流自推导（能力/绑定/权限钉死基线）→ DnaCandidateGenerator 受治理提案；`brainagent evolution auto-plan <id> --baseline --dataset-id` CLI | 5 项测试：弱点→提案（操作落 build_summary、治理校验）、健康快照 NO_WEAKNESS 且零提案、RISK_BLOCKED、缺快照/缺基线拒绝、CLI 往返（含缺参拒绝） |
+| G-01 | `✅ 已开发已测试` | AI/BE | E05,E06 | 1 | `apps/generic_evolution.py`：领域中性感 `auto_plan_candidate`——任意 ACTIVE 基线 + 持久化 fitness 快照 → EvolutionDriver（`artifact_label` 参数化）→ 候选策略从基线工作流自推导（能力/绑定/权限钉死基线）→ DnaCandidateGenerator 受治理提案；`brainagent evolution auto-plan <id> --baseline --dataset-id` CLI | 6 项测试：弱点→提案（操作落 build_summary、治理校验、同参幂等重放）、健康快照 NO_WEAKNESS 且零提案、RISK_BLOCKED、缺快照/缺基线/缺数据集拒绝、CLI 往返（含缺参拒绝）；WSL 打包验证：`uv build` + 全新 venv 安装后 `scripts/wheel_install_smoke.py` PASS，`scripts/g01_packaging_smoke.py` 黑盒驱动已安装 CLI 真实走通 PROPOSED（含完整 governed payload），缺基线/缺参返回结构化 REJECTED 且退出码 0，`scripts/evolution_demo.py`/`scripts/workflow_demo.py` 演练通过 |
 
 ## 13. 阶段 5：经验学习（规划草案，Draft）
 
@@ -346,13 +346,13 @@ bia 交互终端的直接对话能力：复用平台治理 LLM 栈（Adapter + G
 
 | ID | 交付物 | 验收（草案） |
 |---|---|---|
-| X-01 | WorkflowPatch 版本化格式（对既有 Workflow JSON 的最小 diff 契约）与 Schema | 正反例 Schema 测试 |
-| X-02 | 情景记忆 → 候选经验抽取器（Outcome/Trace → Experience 样本，含证据链） | 抽样 golden |
-| X-03 | 候选经验验证器（重放一致性、防过拟合下界） | 矛盾样本拒收测试 |
+| X-01 | `✅ 已开发已测试`——WorkflowPatch 版本化格式（对既有 Workflow JSON 的最小 diff 契约）与 Schema：`domain_sdk/workflow_patch.py`（`WorkflowPatch.parse` 与冻结 Schema 同约束 + patch 内容 digest、`apply_patch` 白名单五操作、base 三元组钉死、`side_effect`/`required_permissions` 不可变、结果过 WorkflowValidator）；Schema 沿用阶段 0 冻结的 `schemas/evolution/workflow-patch-1.0.schema.json`，未漂移 | 33 项测试：Schema 正反例（Draft 2020-12 + FormatChecker 直测冻结 Schema）、模型同约束解析与 round-trip、操作语义（add/remove/replace 的 path/value 存在性）、应用语义（digest/身份不匹配拒绝、安全路径拒绝、未知节点/重复节点拒绝、结果破坏 Workflow 契约拒绝、确定性且不改基线）；`workflow_patch` 模块 100% 覆盖；WSL 打包验证：`uv build` + 全新 venv 安装后 `scripts/x01_packaging_smoke.py` PASS（含篡改 digest 拒绝），wheel/G-01 冒烟回归通过 |
+| X-02 | `✅ 已开发已测试`——情景记忆 → 候选经验抽取器：`domain_sdk/experience_extraction.py`（`ExperienceExtractor` 把 Episode + OutcomeEvaluation + G01 TraceBundle 确定性转成 `ExperienceCandidate`：四方引用互洽校验、仅接受终态任务、四节 outcome 评分界检查、`evidence_episode_ids` 与 `status=CANDIDATE` 直接兼容 RestRepair 落库契约、`experience_id`/`content_digest` 与时钟无关的幂等锚点、`from_document` 带 digest 防篡改回读） | 14 项测试：golden 文案模板 + experience_id 公式双锚定、跨时钟幂等、失败结局文案、9 类断链拒绝（引用不匹配/非终态/缺节/越界/非布尔/Trace 缺 Episode 或 Task/空身份）、digest 防篡改 round-trip、RestRepair 真实 prepare→complete 落库互操作；模块 100% 覆盖；WSL 打包验证：`uv build` + 全新 venv 安装后 `scripts/x02_packaging_smoke.py` PASS（抽取幂等 + RestRepair 落库 SUCCEEDED），wheel/X-01 冒烟回归通过 |
+| X-03 | `✅ 已开发已测试`——候选经验验证器：`domain_sdk/experience_validation.py`（`ExperienceValidator` 对同声明 CANDIDATE 经验组做三道确定性门：防过拟合下界 `minimum_samples`、注入式 `ReplayOracle` 重放一致性（successful 全等 + quality 偏差 ≤ `maximum_score_deviation` + 一致率 ≥ `minimum_replay_agreement`）、矛盾整组 CONTRADICTED 不允许多数票掩盖；`ValidationVerdict` 可序列化且 `from_document` 防篡改；验证器不持久化，落库由调用方决定） | 8 项测试：一致组 VALIDATED、单情景下界拒（过拟合）、重放成功翻转拒、质量漂移超容忍计为不一致、容忍放宽后仍 VALIDATED、矛盾组整组 CONTRADICTED、空组/混合组拒绝、策略界非法拒绝；725 项全量测试、95.10% 覆盖率，Ruff/Mypy strict 通过。修复记录：并发开发遗留的夹具缺陷（缺 content_digest、漂移 oracle 顶出 [0,1] 评分界）由本次提交修复 |
 | X-04 | 语义记忆评估集与错误召回度量 | 离线评估报告 |
 | X-05 | 矛盾处理与过期机制（TTL、冲突消解、审计） | 冲突/过期注入测试 |
 | X-06 | 记忆增强决策 A/B 闭环（有/无记忆双轨对比） | 决策质量提升且错误召回达标 |
 
-进入条件：X-01 Schema 评审通过；向量数据库选型延后至 X-04 结论（新开放问题待登记）。
+进入条件：X-01 Schema 评审通过（Schema 未改，契约已可执行并有正反例测试锚定）；向量数据库选型延后至 X-04 结论（新开放问题待登记）。
 
 默认生成比例为 mutate 25%、crossover 25%、parameter perturb 15%、random 15%、LLM mechanism 20%；实际每轮配额必须记录到 checkpoint。该扩展不改变 MVP 的“无真实交易”边界。

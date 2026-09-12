@@ -23,7 +23,7 @@ from domain_sdk.dna_candidates import (
     DnaCandidateGenerator,
 )
 from domain_sdk.dna_evolution_driver import EvolutionDriver, detect_weakness
-from domain_sdk.experience_dataset import ExperienceDatasetBuilder
+from domain_sdk.experience_dataset import ExperienceDatasetBuilder, ExperienceDatasetError
 
 _SNAPSHOT_KEYS = (
     "success_rate", "evidence_score", "user_value_score", "stability_rate",
@@ -129,9 +129,15 @@ async def auto_plan_candidate(
     plan = await EvolutionDriver(
         database, artifact_label=artifact_label
     ).drive(baseline, snapshot=snapshot)
-    dataset = await ExperienceDatasetBuilder(database, SystemClock()).get(
-        dataset_id, dataset_version
-    )
+    try:
+        dataset = await ExperienceDatasetBuilder(database, SystemClock()).get(
+            dataset_id, dataset_version
+        )
+    except ExperienceDatasetError as error:
+        return GenericAutoPlanResult(
+            status="REJECTED", weakness=plan.weakness,
+            baseline_version=baseline.version, reason=str(error),
+        )
     generator = DnaCandidateGenerator(
         database, SystemClock(), _baseline_policy(baseline.workflow)
     )
