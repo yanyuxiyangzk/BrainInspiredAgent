@@ -1346,6 +1346,28 @@ _FACTOR_RECOVERY_DIGEST = Migration(
     ),
 )
 
+_SEMANTIC_MEMORY_LIFECYCLE = Migration(
+    "029_semantic_memory_lifecycle",
+    (
+        # Append-only, hash-chained lifecycle audit for semantic memory; the
+        # chain makes any history rewrite detectable via verify().
+        """
+        CREATE TABLE semantic_memory_audit (
+            sequence INTEGER PRIMARY KEY,
+            memory_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            reason TEXT,
+            detail_json TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            correlation_id TEXT NOT NULL,
+            previous_digest TEXT NOT NULL,
+            entry_digest TEXT NOT NULL
+        )
+        """,
+        "CREATE INDEX idx_semantic_memory_audit_memory ON semantic_memory_audit(memory_id, sequence)",
+    ),
+)
+
 
 DEFAULT_MIGRATIONS = (
     _INITIAL_SCHEMA,
@@ -1376,4 +1398,5 @@ DEFAULT_MIGRATIONS = (
     _FACTOR_DISCOVERY_STATE,
     _DNA_EVOLUTION_RUNTIME,
     _FACTOR_RECOVERY_DIGEST,
+    _SEMANTIC_MEMORY_LIFECYCLE,
 )

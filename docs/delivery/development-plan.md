@@ -1,8 +1,8 @@
 # MVP 开发实施计划
 
-状态：MVP 0.1、0.1.1、0.2 与 DNA MVP 全部完成；交互终端与 LLM 对话（R01～R08）已完成；v1.5 因子发现扩展 L-001～L-010 全部完成并通过验收回放；演化自动运行装配 W-01/W-02 完成（`/evolution auto-plan` 与 `bia factor-loop run/status` 入口可用）  
+状态：MVP 0.1、0.1.1、0.2 与 DNA MVP 全部完成；交互终端与 LLM 对话（R01～R08）已完成；v1.5 因子发现扩展 L-001～L-010 全部完成并通过验收回放；演化自动运行装配 W-01/W-02 完成（`/evolution auto-plan` 与 `bia factor-loop run/status` 入口可用）；经验学习 X-01～X-06 全部完成（含 X-05 矛盾处理与过期治理），阶段 5 离线闭环关闭  
 计划版本：MVP 0.3 / Plan 1.1  
-最后核验：2026-09-12
+最后核验：2026-09-13
 
 > **分支说明（generic-core，2026-09-12 起生效）**：本分支只保留领域中性的运行时（kernel/platform/SDK 机制 + `brainagent` CLI + `hello_research` 样例）。下述量化专属交付物**仅存在于 `main` 分支**，本分支不包含其代码：`apps/quant_agent` 全部（U/Q/T04/T05/U11/U17 引用的应用面、W-01/W-02 的量化入口、R01～R08 交互终端）、`domain_sdk/factor_backtest.py`（L-007 交付物）、`domain_sdk/factor_acceptance.py`（L-010 交付物）及其测试与冒烟。这些行的状态标记以 main 为准；本分支上因子链为"机制库完整、评估环节在 main"。通用分支的演化自动入口为 `brainagent evolution auto-plan`（G-01，见 §12.2）。
 
@@ -19,7 +19,7 @@
 | `✅ 已开发已测试` | 实现与约定自动化测试均通过 |
 | `⛔ 阻塞` | 存在明确外部阻塞，必须记录原因和解除条件 |
 
-仓库现状：产品、架构、场景、P0 和技术契约文档已完成；在线文档站已开发并通过检查；15 份 JSON Schema 已开发并通过 Draft 2020-12 元规范及引用检查。工程基线（A01～A07）、可靠事件与时间内核（B01～B06、E01、I01）、Workflow 与 Skill 执行内核（C01～C08、D01～D07）、规划授权与运动执行（F01～F06）、主动认知与记忆（E02～E06、G01～G06）、观测验收与发布（I02～I06、T01～T06）、技术底座（P01～P08）、可运行产品闭环（Q01～Q08）、命令面（U01～U17）、DNA 演化（H01.1～H12、T07.1/T07.2）以及交互终端与 LLM 对话（R01～R08）全部完成并通过测试。v1.5 因子发现扩展中 L-001～L-010 全部完成并通过测试、WSL 打包冒烟与 581 轮验收回放（含故障注入），v1.5 扩展验收关闭。
+仓库现状：产品、架构、场景、P0 和技术契约文档已完成；在线文档站已开发并通过检查；15 份 JSON Schema 已开发并通过 Draft 2020-12 元规范及引用检查。工程基线（A01～A07）、可靠事件与时间内核（B01～B06、E01、I01）、Workflow 与 Skill 执行内核（C01～C08、D01～D07）、规划授权与运动执行（F01～F06）、主动认知与记忆（E02～E06、G01～G06）、观测验收与发布（I02～I06、T01～T06）、技术底座（P01～P08）、可运行产品闭环（Q01～Q08）、命令面（U01～U17）、DNA 演化（H01.1～H12、T07.1/T07.2）以及交互终端与 LLM 对话（R01～R08）全部完成并通过测试。v1.5 因子发现扩展中 L-001～L-010 全部完成并通过测试、WSL 打包冒烟与 581 轮验收回放（含故障注入），v1.5 扩展验收关闭。阶段 5 经验学习 X-01～X-06 全部完成并通过测试（X-05 于 2026-09-13 关闭：冲突消解/TTL 续期/审计哈希链，含冲突与过期注入测试、WSL 打包冒烟与既有冒烟回归）。
 
 状态只能依据代码、测试报告或可检查产物更新。部分 Schema 已有不代表对应运行时任务完成。
 
@@ -350,10 +350,10 @@ bia 交互终端的直接对话能力：复用平台治理 LLM 栈（Adapter + G
 | X-02 | `✅ 已开发已测试`——情景记忆 → 候选经验抽取器：`domain_sdk/experience_extraction.py`（`ExperienceExtractor` 把 Episode + OutcomeEvaluation + G01 TraceBundle 确定性转成 `ExperienceCandidate`：四方引用互洽校验、仅接受终态任务、四节 outcome 评分界检查、`evidence_episode_ids` 与 `status=CANDIDATE` 直接兼容 RestRepair 落库契约、`experience_id`/`content_digest` 与时钟无关的幂等锚点、`from_document` 带 digest 防篡改回读） | 14 项测试：golden 文案模板 + experience_id 公式双锚定、跨时钟幂等、失败结局文案、9 类断链拒绝（引用不匹配/非终态/缺节/越界/非布尔/Trace 缺 Episode 或 Task/空身份）、digest 防篡改 round-trip、RestRepair 真实 prepare→complete 落库互操作；模块 100% 覆盖；WSL 打包验证：`uv build` + 全新 venv 安装后 `scripts/x02_packaging_smoke.py` PASS（抽取幂等 + RestRepair 落库 SUCCEEDED），wheel/X-01 冒烟回归通过 |
 | X-03 | `✅ 已开发已测试`——候选经验验证器：`domain_sdk/experience_validation.py`（`ExperienceValidator` 对同声明 CANDIDATE 经验组做三道确定性门：防过拟合下界 `minimum_samples`、注入式 `ReplayOracle` 重放一致性（successful 全等 + quality 偏差 ≤ `maximum_score_deviation` + 一致率 ≥ `minimum_replay_agreement`）、矛盾整组 CONTRADICTED 不允许多数票掩盖；`ValidationVerdict` 可序列化且 `from_document` 防篡改；验证器不持久化，落库由调用方决定） | 8 项测试：一致组 VALIDATED、单情景下界拒（过拟合）、重放成功翻转拒、质量漂移超容忍计为不一致、容忍放宽后仍 VALIDATED、矛盾组整组 CONTRADICTED、空组/混合组拒绝、策略界非法拒绝；725 项全量测试、95.10% 覆盖率，Ruff/Mypy strict 通过。修复记录：并发开发遗留的夹具缺陷（缺 content_digest、漂移 oracle 顶出 [0,1] 评分界）由本次提交修复 |
 | X-04 | `✅ 已开发已测试`——语义记忆评估集与错误召回度量：`domain_sdk/semantic_evaluation.py`（`SemanticEvaluationSet` 从真实 `SemanticMemoryService.validated()` 语料确定性构建、防篡改 digest round-trip；`DirectMatchRetriever` 确定性检索接缝（claim_key/scope 全等、claim_value 可选约束）——向量库选型延后，检索器可注入替换；`run_offline_evaluation` 度量召回率与错误召回（命中禁用记忆即计错）并产出七字段指标 + 逐案例结果的机器可读报告）；`scripts/x0406_packaging_smoke.py` | 13 项测试：真实语料构建与防篡改 round-trip、案例/策略界校验、golden 报告 PASSED、记忆缺失跌破召回下界、禁用记忆超错误预算、最小案例数守卫、scope 敏感检索；WSL 打包验证：`uv build` + 全新 venv `x0406_packaging_smoke.py` PASS（recall=1.0） |
-| X-05 | 矛盾处理与过期机制（TTL、冲突消解、审计） | 冲突/过期注入测试 |
+| X-05 | `✅ 已开发已测试`——矛盾处理与过期机制：`active_agent_platform/semantic_memory.py` 扩展三块治理能力——①冲突显式裁决 `resolve_conflict`（winner/loser 须真实矛盾互链，终态/过期参与方拒绝，校验先行整体原子，losers 转 REJECTED 终态、winner 解除矛盾链接后可正常晋升）；②TTL 续期 `renew`（仅 VALIDATED 可续、`data_version` 全等校验防过期数据续生、`TtlPolicy` 总生命周期上界防无限续命、valid_until 单调延长）；③全生命周期审计（迁移 029 新增追加只进 `semantic_memory_audit` 哈希链表，PROPOSED/PROMOTED/PROMOTION_REFUSED/CONFLICT_LINKED/CONFLICT_RESOLVED/RENEWED/EXPIRED 七类事件全部接线，`verify()` 重算链定位断点、`audit(memory_id)` 过滤查询；服务层生命周期操作统一时钟驱动） | 14 项测试通过：矛盾裁决消解并解除晋升阻断、伪造互链/终态与过期参与方/结构非法（自引用、重复、缺方法）拒绝、多 loser 校验失败整体原子、续期版本不匹配/非 VALIDATED 状态/总生命周期超上界（恰好等于上界放行）/非正 ttl 拒绝、晋升时过期注入（EXPIRED+PROMOTION_REFUSED 双审计事件）、审计链全链校验与历史篡改定位（改写 event_type 与 detail_json 均检出）、expire_due 空转零追加；`semantic_memory` 模块 100% 覆盖；752 项全量测试、95.15% 覆盖率，Ruff/Mypy strict/Compileall 通过；WSL 打包验证：`uv build` + 全新 venv 安装后 `scripts/x05_packaging_smoke.py` PASS（矛盾→裁决→晋升→续期→过期 7 事件生命周期 + 审计链篡改检出），wheel/G-01/X-01/X-02/X-04+06 冒烟回归通过 |
 | X-06 | `✅ 已开发已测试`——记忆增强决策 A/B 闭环：`domain_sdk/decision_ab.py`（同案例集双轨：无记忆基线臂 vs 记忆增强臂——增强臂决策须报告检索命中的记忆 ID；确定性裁判打分；裁决门 = 质量增量 ≥ 下界 且 错误召回 ≤ 预算 且 案例数达标，记忆回退基线即 FAILED；`AbReport` 防篡改 round-trip） | 11 项测试：质量增量 +0.8 PASSED（含逐案例不回退断言）、无效记忆跌破增量下界、污染记忆超错误召回预算、最小案例数守卫、记忆回退被标记、策略界与报告 round-trip；WSL 打包验证同上（quality_delta=0.8 PASSED） |
 
-阶段 5 小结：X-01～X-04、X-06 完成后，经验学习的"候选→验证→评估→决策增益证明"闭环已可离线运行。剩余 X-05（矛盾处理与过期机制的注入测试）与向量库选型（X-04 结论：直配检索已达确定性目标，向量库仅在语义相似度需求出现时再引入）。
+阶段 5 小结：X-01～X-06 全部完成后，经验学习的"候选→验证→评估→决策增益证明→矛盾处理与过期治理"闭环已可离线运行。唯一遗留为向量库选型（X-04 结论：直配检索已达确定性目标，向量库仅在语义相似度需求出现时再引入），进入阶段 6 前无阻塞。已知边界（有意的设计权衡）：REJECTED 记录继续占用 `(claim_key, scope_digest, claim_value, data_version)` 唯一约束以杜绝"消解后复活"；审计链为全局单链追加只进，无轮转归档（归档需先引入链锚点机制，当前规模不需要）。
 
 进入条件：X-01 Schema 评审通过（Schema 未改，契约已可执行并有正反例测试锚定）；向量数据库选型延后至 X-04 结论（新开放问题待登记）。
 
